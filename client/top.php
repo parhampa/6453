@@ -143,7 +143,7 @@
         <div class="sidebar-inner">
             <div class="text-center mb-3 mt-2">
                 <i class="fas fa-chalkboard-user fs-1" style="color:#7aa9e2;"></i>
-                <h5 class="fw-semibold mt-2" style="color:#eef2ff">پنل مدیریت</h5>
+                <h5 class="fw-semibold mt-2" style="color:#eef2ff">پنل مدیریت کافه</h5>
             </div>
             <!-- فیلد جستجوی مخصوص موبایل (در بالای منو) -->
             <div class="sidebar-search-mobile" id="sidebarSearchMobile">

@@ -260,7 +260,7 @@ function is_active($page, $current)
            aria-expanded="<?php echo $open_group === 'groupCafes' ? 'true' : 'false'; ?>"
            aria-controls="groupCafes">
             <i class="fas fa-mug-saucer"></i>
-            <span>مدیریت کافه‌ها</span>
+            <span>مدیریت کافه</span>
             <i class="fas fa-chevron-down menu-arrow"></i>
         </a>
         <ul class="collapse submenu <?php echo $open_group === 'groupCafes' ? 'show' : ''; ?>" id="groupCafes">
@@ -268,14 +268,14 @@ function is_active($page, $current)
                 <a href="waiters.php?action=show"
                    class="<?php echo is_active('waiters.php', $current_page); ?>">
                     <i class="fas fa-bell-concierge"></i>
-                    گارسون کافه‌ها
+                    گارسون ها
                 </a>
             </li>
             <li>
                 <a href="cafe_categories.php?action=show"
                    class="<?php echo is_active('cafe_categories.php', $current_page); ?>">
                     <i class="fas fa-tags"></i>
-                    دسته‌بندی کافه‌ها
+                    دسته‌بندی ها
                 </a>
             </li>
             <li>
@@ -398,15 +398,15 @@ function is_active($page, $current)
                     <div class="user-info dropdown-toggle" id="profileDropdown" data-bs-toggle="dropdown"
                          aria-expanded="false">
                         <?php
-                        $thisuser = $_SESSION['username'];
-                        $sqlt = "select * from `admin_user` where `username`='$thisuser'";
+                        $thisuser = $_SESSION['manager_mobile'];
+                        $sqlt = "select * from `cafes` where `manager_mobile`='$thisuser'";
                         $dbt = new database();
                         $dbt->connect()->query($sqlt);
                         $fildt = mysqli_fetch_assoc($dbt->res);
-                        $avatar = mb_substr($fildt['name'], 0, 1, 'UTF-8');
+                        $avatar = mb_substr($fildt['title'], 0, 1, 'UTF-8');
                         ?>
                         <div class="user-avatar"><span><?php echo($avatar); ?></span></div>
-                        <span class="user-name"><?php echo($fildt['name'] . " " . $fildt['family']); ?></span>
+                        <span class="user-name"><?php echo($fildt['title']); ?></span>
                         <i class="fas fa-chevron-down" style="font-size: 10px;"></i>
                     </div>
                     <ul class="dropdown-menu dropdown-menu-end">

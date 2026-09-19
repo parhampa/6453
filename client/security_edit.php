@@ -1,7 +1,23 @@
 <?php
+/**
+ * پردازش تغییر رمز عبور کافه
+ */
+error_reporting(0);
+ini_set('display_errors', 0);
+
 session_start();
+
+ob_start();
+
 include("../lib/php/lib_include.php");
 include("check_admin_session.php");
+
+if (ob_get_length() > 0) {
+    ob_clean();
+}
+
+header('Content-Type: application/json; charset=utf-8');
+
 $ml = new mobile_input();
 
 $pass = $ml->set_name("pass")
@@ -19,29 +35,48 @@ $newpass2 = $ml->set_name("newpass2")
     ->set_important(true)
     ->post_str();
 
-if ($newpass != $newpass2) {
-    $ml->json_msg("کلمه عبور جدید و تکرار آن با هم یکسان نیستند.", 0);
-    die();
+/* موبایل مدیر از سشن */
+$mob = preg_replace('/[^0-9]/', '', $_SESSION['manager_mobile']);
+
+/* پاسخ خطا و پایان */
+function reply($status, $msg)
+{
+    if (ob_get_length() > 0) {
+        ob_clean();
+    }
+    echo json_encode([
+        'status' => $status,
+        'msg' => $msg
+    ], JSON_UNESCAPED_UNICODE);
+    while (ob_get_level() > 0) {
+        ob_end_flush();
+    }
+    exit;
 }
 
-$mid = $_SESSION['username'];
-$sqlt = "select * from `admin_user` where `username`='$mid' and `pass`='$pass'";
-$dbt = new database();
-$dbt->connect()->query($sqlt);
+/* ۱) کلمه عبور جدید و تکرارش باید یکسان باشند */
+if ($newpass !== $newpass2) {
+    reply(0, 'کلمه عبور جدید و تکرار آن با هم یکسان نیستند.');
+}
 
-if (mysqli_num_rows($dbt->res) == 0) {
-    $ml->json_msg("کلمه عبور پیشین اشتباه می باشد.", "0");
-    die();
+/* ۲) بررسی کلمه عبور پیشین */
+$db = new database();
+$db->connect()->query(
+    "select * from `cafes` where `manager_mobile`='$mob' and `pass`='$pass' limit 1"
+);
+
+if (mysqli_num_rows($db->res) == 0) {
+    reply(0, 'کلمه عبور پیشین اشتباه می باشد.');
+}
+
+/* ۳) بروزرسانی کلمه عبور */
+$db->connect()->query(
+    "update `cafes` set `pass`='$newpass' where `manager_mobile`='$mob'"
+);
+
+if ($db->res) {
+    reply(1, 'کلمه عبور با موفقیت تغییر یافت. لطفاً مجدداً وارد شوید.');
 } else {
-    $sql = "update `admin_user` set `pass`='$newpass' where `username`='$mid'";
-    $db = new database();
-    $db->connect()->query($sql);
-    if ($db->res) {
-        $ml->json_msg("عملیات با موفقیت انجام شد", "1");
-        die();
-    } else {
-        $ml->json_msg("اشکال در انجام عملیات", "0");
-        die();
-    }
+    reply(0, 'اشکال در ثبت اطلاعات');
 }
 ?>
