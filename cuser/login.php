@@ -151,14 +151,14 @@ include("../lib/php/lib_include.php");
             <img src="daminologo.png" alt="لوگو">
             <h3>
                 <i class="fa fa-lock me-2"></i>
-                ورود به پنل کافی شاپ
+                ورود به پنل گارسون
             </h3>
         </div>
         <div class="login-body" id="sdive">
             <?php
             $lg = new loginpg();
             $lg->inputclass = "form-control";
-            $lg->showlogin("cafes", "manager_mobile", "pass", "index.php");
+            $lg->showlogin("waiters", "tel", "pass", "index.php");
             ?>
         </div>
         <div class="login-footer">
