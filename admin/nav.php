@@ -11,6 +11,7 @@ $menu_groups = [
     ],
     'groupCafes' => [
         'cafes.php',
+        'anbar.php',
         'waiters.php',
         'cafe_categories.php',
         'menu_items.php',
@@ -265,6 +266,13 @@ function is_active($page, $current)
                    class="<?php echo is_active('menu_items.php', $current_page); ?>">
                     <i class="fas fa-utensils"></i>
                     آیتم‌های منو
+                </a>
+            </li>
+            <li>
+                <a href="anbar.php?action=show"
+                   class="<?php echo is_active('anbar.php', $current_page); ?>">
+                    <i class="fas fa-tags"></i>
+                    انبارها
                 </a>
             </li>
         </ul>
