@@ -1,1505 +1,554 @@
+<?php
+/* ================================================================
+   ⚙️  تنظیمات
+   ================================================================ */
+$CAFE_ID = 1;
+
+$PATHS = [
+    'lib' => 'lib_include.php',
+    'bootstrap_css' => 'bootstrap-5.3.7-dist/css/bootstrap.rtl.min.css',
+    'bootstrap_js' => 'bootstrap-5.3.7-dist/js/bootstrap.bundle.min.js',
+    'fontawesome' => 'fontawesome-free-6.7.2-web/css/all.min.css',
+    'jquery' => 'lib/js/jquery.js',
+    'palib' => 'lib/js/palib.js',
+    'style' => 'style.css',
+    'script' => 'script.js',
+];
+
+session_start();
+include_once $PATHS['lib'];
+
+$db = new database();
+$db->connect();
+
+$cid = (int)$CAFE_ID;
+
+/* کافه */
+$db->query("SELECT * FROM `cafes` WHERE `id` = $cid AND `status` = 1 LIMIT 1");
+$cafe = mysqli_fetch_assoc($db->res);
+
+if (!$cafe) {
+    http_response_code(404);
+    die('کافه مورد نظر یافت نشد یا غیرفعال است.');
+}
+
+/* دسته‌بندی‌ها */
+$categories = [];
+$db->connect()->query("SELECT * FROM `cafe_categories` WHERE `cafe_id` = $cid ORDER BY `id`");
+while ($row = mysqli_fetch_assoc($db->res)) $categories[] = $row;
+
+/* آیتم‌های منو */
+$menu_items = [];
+$db->connect()->query("
+    SELECT mi.*, cc.title AS cat_title
+    FROM `menu_items` mi
+    JOIN `cafe_categories` cc ON cc.id = mi.category_id
+    WHERE cc.cafe_id = $cid
+    ORDER BY mi.category_id, mi.id
+");
+while ($row = mysqli_fetch_assoc($db->res)) $menu_items[] = $row;
+
+/* نظرات تأیید‌شده */
+$comments_by_item = [];
+$db->connect()->query("
+    SELECT cm.*, mi.title AS item_title
+    FROM `comments` cm
+    JOIN `menu_items` mi ON mi.id = cm.menu_item_id
+    JOIN `cafe_categories` cc ON cc.id = mi.category_id
+    WHERE cc.cafe_id = $cid AND cm.status = 1
+    ORDER BY cm.id DESC
+");
+while ($row = mysqli_fetch_assoc($db->res)) {
+    $item_id = (int)$row['menu_item_id'];
+    $comments_by_item[$item_id][] = $row;
+}
+
+/* تعداد آیتم هر دسته */
+$cat_counts = [];
+foreach ($menu_items as $mi) {
+    $cat = (int)$mi['category_id'];
+    $cat_counts[$cat] = ($cat_counts[$cat] ?? 0) + 1;
+}
+
+/* ---------- توابع کمکی ---------- */
+function fa_num($n)
+{
+    $n = number_format((float)$n, 0, '.', '٬');
+    return str_replace(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+        ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'], $n);
+}
+
+function fa_float($n, $d = 1)
+{
+    $n = number_format((float)$n, $d, '.', '');
+    return str_replace(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+        ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'], $n);
+}
+
+function item_rating($comments)
+{
+    if (empty($comments)) return ['score' => 0, 'count' => 0, 'sum' => 0];
+    $sum = 0;
+    foreach ($comments as $c) $sum += (int)$c['score'];
+    return ['score' => round($sum / count($comments), 1), 'count' => count($comments), 'sum' => $sum];
+}
+
+function fix_img($path)
+{
+    if (empty($path)) return '';
+    $path = str_replace('\\', '/', trim($path));
+    while (strpos($path, '../') === 0) $path = substr($path, 3);
+    return ltrim($path, '/');
+}
+
+function category_icon($title)
+{
+    $map = [
+        'بار گرم' => 'fa-mug-hot', 'بار سرد' => 'fa-mug-saucer',
+        'صبحانه' => 'fa-egg', 'ناهار' => 'fa-utensils',
+        'شام' => 'fa-drumstick-bite', 'کیک' => 'fa-cake-candles',
+        'نوشیدنی' => 'fa-lemon', 'دسر' => 'fa-ice-cream',
+    ];
+    foreach ($map as $k => $v) {
+        if (mb_strpos($title, $k, 0, 'UTF-8') !== false) return $v;
+    }
+    return 'fa-mug-hot';
+}
+
+?>
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>منوی دیجیتال کافی‌شاپ</title>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="cafe-id" content="<?= (int)$cid ?>"/>
+    <title><?= htmlspecialchars($cafe['title']) ?> — منوی دیجیتال</title>
 
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css" />
+    <link href="<?= $PATHS['bootstrap_css'] ?>" rel="stylesheet"/>
+    <link rel="stylesheet" href="<?= $PATHS['fontawesome'] ?>"/>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet"/>
+    <link rel="stylesheet" href="<?= $PATHS['style'] ?>"/>
+
+    <style>
+        /* ═══════════ استایل فیلد شماره میز در مودال ═══════════ */
+        .table-row {
+            margin-bottom: 14px;
+        }
+
+        .table-row .table-hint {
+            font-size: 11.5px;
+            color: #8b7355;
+            margin-top: 6px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .table-row .table-hint i {
+            color: #c69c6d;
+        }
+
+        .table-number-input {
+            width: 100%;
+            padding: 11px 40px 11px 14px;
+            border: 1.5px solid #e8e0d5;
+            border-radius: 10px;
+            background: #fbfcfd;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            color: #3e2723;
+            text-align: center;
+            letter-spacing: 2px;
+            transition: all 0.2s ease;
+        }
+
+        .table-number-input:focus {
+            border-color: #6d4c41;
+            background: #fff;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(109, 76, 65, 0.12);
+        }
+
+        .table-number-input::placeholder {
+            color: #b8a99a;
+            font-weight: normal;
+            letter-spacing: normal;
+        }
+
+        /* ============ Order Row Placeholder ============ */
+        .order-row-placeholder {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #f5efe7, #e5c49d);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 22px;
+            flex-shrink: 0;
+            opacity: 0.85;
+        }
+    </style>
 </head>
 <body>
 
-  <!-- ================= مودال خوش‌آمدگویی ================= -->
-  <div class="modal fade welcome-modal" id="welcomeModal" tabindex="-1" aria-labelledby="welcomeModalLabel" data-bs-backdrop="static" data-bs-keyboard="false">
+<!-- ================= مودال خوش‌آمدگویی ================= -->
+<div class="modal fade welcome-modal" id="welcomeModal" tabindex="-1" aria-labelledby="welcomeModalLabel"
+     data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-body">
-          <div class="modal-icon"><i class="fa-solid fa-mug-saucer"></i></div>
-          <h3 id="welcomeModalLabel">خوش اومدی 👋</h3>
-          <p class="modal-sub">قبل از دیدن منو، یه لحظه اطلاعاتت رو وارد کن تا سفارش و نظراتت رو به اسم خودت ثبت کنیم.</p>
+        <div class="modal-content">
+            <div class="modal-body">
+                <div class="modal-icon"><i class="fa-solid fa-mug-saucer"></i></div>
+                <h3 id="welcomeModalLabel">خوش اومدی 👋</h3>
+                <p class="modal-sub">قبل از دیدن منو، یه لحظه اطلاعاتت رو وارد کن تا سفارش و نظراتت رو به اسم خودت ثبت
+                    کنیم.</p>
 
-          <form id="welcomeForm" novalidate>
-            <div class="name-row">
-              <div class="form-field">
-                <label for="firstNameInput">نام</label>
-                <div class="input-group-custom">
-                  <i class="fa-regular fa-user"></i>
-                  <input type="text" id="firstNameInput" placeholder="مثلاً سارا" autocomplete="given-name" />
-                </div>
-              </div>
-              <div class="form-field">
-                <label for="lastNameInput">نام خانوادگی</label>
-                <div class="input-group-custom">
-                  <i class="fa-regular fa-user"></i>
-                  <input type="text" id="lastNameInput" placeholder="مثلاً احمدی" autocomplete="family-name" />
-                </div>
-              </div>
+                <form id="welcomeForm" novalidate>
+
+                    <div class="name-row">
+                        <div class="form-field">
+                            <label for="firstNameInput">نام</label>
+                            <div class="input-group-custom">
+                                <i class="fa-regular fa-user"></i>
+                                <input type="text" id="firstNameInput" placeholder="مثلاً سارا"
+                                       autocomplete="given-name"/>
+                            </div>
+                        </div>
+                        <div class="form-field">
+                            <label for="lastNameInput">نام خانوادگی</label>
+                            <div class="input-group-custom">
+                                <i class="fa-regular fa-user"></i>
+                                <input type="text" id="lastNameInput" placeholder="مثلاً احمدی"
+                                       autocomplete="family-name"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-field">
+                        <label for="phoneInput">شماره تلفن</label>
+                        <div class="input-group-custom">
+                            <i class="fa-solid fa-phone"></i>
+                            <input type="tel" id="phoneInput" placeholder="09xxxxxxxxx" inputmode="numeric"
+                                   autocomplete="tel"/>
+                        </div>
+                    </div>
+
+                    <!-- ============ شماره میز (فیلد جدید) ============ -->
+                    <div class="table-row">
+                        <label for="tableNumberInput">شماره میز</label>
+                        <div class="input-group-custom" style="position:relative;">
+                            <i class="fa-solid fa-table-cells-large"
+                               style="position:absolute; right:14px; top:50%; transform:translateY(-50%); color:#8b7355; font-size:14px; pointer-events:none;"></i>
+                            <input type="number" id="tableNumberInput" class="table-number-input" placeholder="مثلاً ۵"
+                                   min="1" max="99" inputmode="numeric"/>
+                        </div>
+                        <div class="table-hint">
+                            <i class="fa-solid fa-circle-info"></i>
+                            شماره میز روی میزتون نوشته شده — لطفاً درست وارد کنید.
+                        </div>
+                    </div>
+
+                    <div class="field-error" id="formError">لطفاً همه‌ی فیلدها رو با یک شماره تلفن و شماره میز معتبر پر
+                        کن.
+                    </div>
+
+                    <button type="submit" class="continue-btn">ادامه</button>
+                </form>
             </div>
-
-            <div class="form-field">
-              <label for="phoneInput">شماره تلفن</label>
-              <div class="input-group-custom">
-                <i class="fa-solid fa-phone"></i>
-                <input type="tel" id="phoneInput" placeholder="09xxxxxxxxx" inputmode="numeric" autocomplete="tel" />
-              </div>
-              <div class="field-error" id="formError">لطفاً همه‌ی فیلدها رو با یک شماره تلفن معتبر پر کن.</div>
-            </div>
-
-            <button type="submit" class="continue-btn">ادامه</button>
-          </form>
         </div>
-      </div>
     </div>
-  </div>
+</div>
 
-  <!-- ================= مودال سفارش من ================= -->
-  <div class="modal fade order-modal" id="orderModal" tabindex="-1" aria-labelledby="orderModalLabel">
+<!-- ================= مودال سفارش من ================= -->
+<div class="modal fade order-modal" id="orderModal" tabindex="-1" aria-labelledby="orderModalLabel">
     <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-      <div class="modal-content">
-        <div class="modal-header">
-          <div class="order-modal-title">
-            <i class="fa-solid fa-bag-shopping"></i>
-            <h5 id="orderModalLabel">سفارش من</h5>
-          </div>
-          <button type="button" class="btn-close-custom" data-bs-dismiss="modal" aria-label="بستن">
-            <i class="fa-solid fa-xmark"></i>
-          </button>
-        </div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="order-modal-title">
+                    <i class="fa-solid fa-bag-shopping"></i>
+                    <h5 id="orderModalLabel">سفارش من</h5>
+                </div>
+                <button type="button" class="btn-close-custom" data-bs-dismiss="modal" aria-label="بستن">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
 
-        <div class="modal-body">
-          <div class="order-list" id="orderList"></div>
-        </div>
+            <div class="modal-body">
+                <div class="order-list" id="orderList"></div>
+            </div>
 
-        <div class="modal-footer">
-          <div class="order-total-row">
-            <span>جمع کل</span>
-            <strong id="orderTotal">۰ تومان</strong>
-          </div>
-          <button class="send-order-btn" id="sendOrderBtn" type="button">
-            <i class="fa-solid fa-paper-plane"></i>
-            <span>ارسال به گارسون</span>
-          </button>
+            <div class="modal-footer">
+                <div class="order-total-row">
+                    <span>جمع کل</span>
+                    <strong id="orderTotal">۰ تومان</strong>
+                </div>
+                <button class="send-order-btn" id="sendOrderBtn" type="button">
+                    <i class="fa-solid fa-cash-register"></i>
+                    <span>ارسال به صندوق</span>
+                </button>
+            </div>
         </div>
-      </div>
     </div>
-  </div>
+</div>
 
-  <!-- ================= محتوای اصلی ================= -->
-  <div id="appRoot">
+<!-- ================= محتوای اصلی ================= -->
+<div id="appRoot">
     <header class="top-bar">
-      <div class="top-bar-inner">
-        <div class="brand">
-          <button class="back-btn" id="backBtn" type="button">
-            <i class="fa-solid fa-arrow-right"></i>
-            <span>بازگشت</span>
-          </button>
-          <div class="brand-mark"><i class="fa-solid fa-mug-hot"></i></div>
-          <div class="brand-text">
-            <h1>کافه روزمهر</h1>
-            <span>منوی دیجیتال</span>
-          </div>
+        <div class="top-bar-inner">
+            <div class="brand">
+                <button class="back-btn" id="backBtn" type="button">
+                    <i class="fa-solid fa-arrow-right"></i>
+                    <span>بازگشت</span>
+                </button>
+                <div class="brand-mark"><i class="fa-solid fa-mug-hot"></i></div>
+                <div class="brand-text">
+                    <h1><?= htmlspecialchars($cafe['title']) ?></h1>
+                    <span>منوی دیجیتال</span>
+                </div>
+            </div>
+            <button class="order-pill" id="orderPillBtn" type="button">
+                <i class="fa-solid fa-bag-shopping"></i>
+                سفارش من
+                <span class="count" id="orderCount">0</span>
+            </button>
         </div>
-        <button class="order-pill" id="orderPillBtn" type="button">
-          <i class="fa-solid fa-bag-shopping"></i>
-          سفارش من
-          <span class="count" id="orderCount">0</span>
-        </button>
-      </div>
     </header>
 
-    <!-- ==================== صفحه‌ی دسته‌بندی‌ها ==================== -->
+    <!-- صفحه دسته‌بندی‌ها -->
     <main class="page" id="categoriesPage">
+        <section class="brand-hero">
+            <div class="brand-logo">
+                <?php if (!empty($cafe['logo'])): ?>
+                    <img src="<?= htmlspecialchars(fix_img($cafe['logo'])) ?>"
+                         alt="<?= htmlspecialchars($cafe['title']) ?>"/>
+                <?php else: ?>
+                    <i class="fa-solid fa-mug-hot" style="font-size:64px;color:#c69c6d;"></i>
+                <?php endif; ?>
+            </div>
+            <h1 class="brand-hero-name"><?= htmlspecialchars($cafe['title']) ?></h1>
+            <p class="brand-hero-slogan"><?= htmlspecialchars($cafe['slogan'] ?? '') ?></p>
+        </section>
 
-      <section class="brand-hero">
-        <div class="brand-logo">
-          <img src="https://picsum.photos/seed/rozmehr-logo/240/240" alt="لوگوی کافه روزمهر" />
+        <div class="page-hero">
+            <div class="eyebrow-name" id="greetingText">سلام 👋</div>
+            <h2>چی میل داری؟</h2>
+            <p>از بین دسته‌بندی‌های زیر انتخاب کن تا آیتم‌های اون بخش رو ببینی.</p>
         </div>
-        <h1 class="brand-hero-name">کافه روزمهر</h1>
-        <p class="brand-hero-slogan">هر فنجان، یک لحظه‌ی آرامش</p>
-      </section>
 
-      <div class="page-hero">
-        <div class="eyebrow-name" id="greetingText">سلام 👋</div>
-        <h2>چی میل داری؟</h2>
-        <p>از بین دسته‌بندی‌های زیر انتخاب کن تا آیتم‌های اون بخش رو ببینی.</p>
-      </div>
-
-      <div class="category-grid" id="categoryGrid">
-
-        <!-- بار گرم -->
-        <button class="category-card" type="button" data-cat="hot-bar">
-          <div class="category-visual icon-only"><i class="fa-solid fa-mug-hot"></i></div>
-          <div>
-            <div class="category-title">بار گرم</div>
-            <div class="category-count">۳ آیتم</div>
-          </div>
-        </button>
-
-        <!-- بار سرد -->
-        <button class="category-card" type="button" data-cat="cold-bar">
-          <div class="category-visual"><img src="https://picsum.photos/seed/cold-bar-cafe/400/400" alt="بار سرد" loading="lazy" /></div>
-          <div>
-            <div class="category-title">بار سرد</div>
-            <div class="category-count">۳ آیتم</div>
-          </div>
-        </button>
-
-        <!-- صبحانه -->
-        <button class="category-card" type="button" data-cat="breakfast">
-          <div class="category-visual"><img src="https://picsum.photos/seed/breakfast-cafe/400/400" alt="صبحانه" loading="lazy" /></div>
-          <div>
-            <div class="category-title">صبحانه</div>
-            <div class="category-count">۲ آیتم</div>
-          </div>
-        </button>
-
-        <!-- ناهار -->
-        <button class="category-card" type="button" data-cat="lunch">
-          <div class="category-visual icon-only"><i class="fa-solid fa-utensils"></i></div>
-          <div>
-            <div class="category-title">ناهار</div>
-            <div class="category-count">۲ آیتم</div>
-          </div>
-        </button>
-
-        <!-- شام -->
-        <button class="category-card" type="button" data-cat="dinner">
-          <div class="category-visual"><img src="https://picsum.photos/seed/dinner-cafe/400/400" alt="شام" loading="lazy" /></div>
-          <div>
-            <div class="category-title">شام</div>
-            <div class="category-count">۱ آیتم</div>
-          </div>
-        </button>
-
-        <!-- کیک -->
-        <button class="category-card" type="button" data-cat="cake">
-          <div class="category-visual"><img src="https://picsum.photos/seed/cake-cafe/400/400" alt="کیک" loading="lazy" /></div>
-          <div>
-            <div class="category-title">کیک</div>
-            <div class="category-count">۲ آیتم</div>
-          </div>
-        </button>
-
-        <!-- نوشیدنی بدون قهوه -->
-        <button class="category-card" type="button" data-cat="non-coffee">
-          <div class="category-visual icon-only"><i class="fa-solid fa-lemon"></i></div>
-          <div>
-            <div class="category-title">نوشیدنی‌های بدون قهوه</div>
-            <div class="category-count">۲ آیتم</div>
-          </div>
-        </button>
-
-        <!-- دسر -->
-        <button class="category-card" type="button" data-cat="dessert">
-          <div class="category-visual"><img src="https://picsum.photos/seed/dessert-cafe/400/400" alt="دسر" loading="lazy" /></div>
-          <div>
-            <div class="category-title">دسر</div>
-            <div class="category-count">۱ آیتم</div>
-          </div>
-        </button>
-
-      </div>
-
-      <!-- اطلاعات کافه -->
-      <footer class="cafe-info">
-        <h3 class="cafe-info-title">درباره‌ی ما</h3>
-        <div class="cafe-info-grid">
-          <div class="info-item">
-            <div class="info-icon"><i class="fa-solid fa-location-dot"></i></div>
-            <div class="info-text">
-              <span class="info-label">آدرس</span>
-              <span class="info-value">تهران، خیابان ولیعصر، پلاک ۱۲۳</span>
-            </div>
-          </div>
-
-          <div class="info-item">
-            <div class="info-icon"><i class="fa-solid fa-phone"></i></div>
-            <div class="info-text">
-              <span class="info-label">تماس</span>
-              <span class="info-value ltr" dir="ltr">021-12345678</span>
-            </div>
-          </div>
-
-          <div class="info-item">
-            <div class="info-icon"><i class="fa-regular fa-clock"></i></div>
-            <div class="info-text">
-              <span class="info-label">ساعات کاری</span>
-              <span class="info-value">هر روز، ۸ صبح تا ۱۲ شب</span>
-            </div>
-          </div>
-
-          <div class="info-item">
-            <div class="info-icon"><i class="fa-brands fa-instagram"></i></div>
-            <div class="info-text">
-              <span class="info-label">اینستاگرام</span>
-              <span class="info-value ltr" dir="ltr">@cafe.rozmehr</span>
-            </div>
-          </div>
+        <div class="category-grid" id="categoryGrid">
+            <?php foreach ($categories as $cat):
+                $cat_id = (int)$cat['id'];
+                $cat_count = $cat_counts[$cat_id] ?? 0;
+                if ($cat_count === 0) continue;
+                $has_img = !empty($cat['image']);
+                ?>
+                <button class="category-card" type="button" data-cat="<?= $cat_id ?>">
+                    <?php if ($has_img): ?>
+                        <div class="category-visual">
+                            <img src="<?= htmlspecialchars(fix_img($cat['image'])) ?>"
+                                 alt="<?= htmlspecialchars($cat['title']) ?>" loading="lazy"/>
+                        </div>
+                    <?php else: ?>
+                        <div class="category-visual icon-only">
+                            <i class="fa-solid <?= category_icon($cat['title']) ?>"></i>
+                        </div>
+                    <?php endif; ?>
+                    <div>
+                        <div class="category-title"><?= htmlspecialchars($cat['title']) ?></div>
+                        <div class="category-count"><?= fa_num($cat_count) ?> آیتم</div>
+                    </div>
+                </button>
+            <?php endforeach; ?>
         </div>
-      </footer>
+
+        <footer class="cafe-info">
+            <h3 class="cafe-info-title">درباره‌ی ما</h3>
+            <div class="cafe-info-grid">
+                <?php if (!empty($cafe['address'])): ?>
+                    <div class="info-item">
+                        <div class="info-icon"><i class="fa-solid fa-location-dot"></i></div>
+                        <div class="info-text"><span class="info-label">آدرس</span><span
+                                    class="info-value"><?= htmlspecialchars($cafe['address']) ?></span></div>
+                    </div>
+                <?php endif; ?>
+                <?php if (!empty($cafe['tel1'])): ?>
+                    <div class="info-item">
+                        <div class="info-icon"><i class="fa-solid fa-phone"></i></div>
+                        <div class="info-text"><span class="info-label">تماس</span><span class="info-value ltr"
+                                                                                         dir="ltr"><?= htmlspecialchars($cafe['tel1']) ?></span>
+                        </div>
+                    </div>
+                <?php endif; ?>
+                <?php if (!empty($cafe['working_hours'])): ?>
+                    <div class="info-item">
+                        <div class="info-icon"><i class="fa-regular fa-clock"></i></div>
+                        <div class="info-text"><span class="info-label">ساعات کاری</span><span
+                                    class="info-value"><?= htmlspecialchars($cafe['working_hours']) ?></span></div>
+                    </div>
+                <?php endif; ?>
+                <?php if (!empty($cafe['instagram'])): ?>
+                    <div class="info-item">
+                        <div class="info-icon"><i class="fa-brands fa-instagram"></i></div>
+                        <div class="info-text"><span class="info-label">اینستاگرام</span><span class="info-value ltr"
+                                                                                               dir="ltr">@<?= htmlspecialchars(ltrim($cafe['instagram'], '@')) ?></span>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </footer>
     </main>
 
-    <!-- ==================== صفحه‌ی آیتم‌ها ==================== -->
+    <!-- صفحه آیتم‌ها -->
     <main class="page" id="itemsPage" style="display: none">
-      <div class="items-header">
-        <h2 id="itemsPageTitle">دسته‌بندی</h2>
-        <span class="items-count" id="itemsPageCount"></span>
-      </div>
+        <div class="items-header">
+            <h2 id="itemsPageTitle">دسته‌بندی</h2>
+            <span class="items-count" id="itemsPageCount"></span>
+        </div>
 
-      <div class="item-feed" id="itemFeed">
+        <div class="item-feed" id="itemFeed">
+            <?php foreach ($menu_items as $item):
+                $item_id = (int)$item['id'];
+                $comments = $comments_by_item[$item_id] ?? [];
+                $rating = item_rating($comments);
+                $score = $rating['score'];
+                $c_count = $rating['count'];
+                $c_sum = $rating['sum'];
+                $has_img = !empty($item['image']);
+                $icon = category_icon($item['cat_title']);
+                ?>
+                <article class="post-card"
+                         data-item="<?= $item_id ?>"
+                         data-category="<?= (int)$item['category_id'] ?>"
+                         data-price="<?= (int)$item['price'] ?>"
+                         data-count="<?= $c_count ?>"
+                         data-sum="<?= $c_sum ?>">
 
-        <!-- ==================== آیتم hb-1 ==================== -->
-        <article class="post-card" data-item="hb-1" data-category="hot-bar" data-price="75000" data-count="3" data-sum="14">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-mug-hot"></i></div>
-            <div class="head-text">
-              <strong>اسپرسو دبل</strong>
-              <span>بار گرم</span>
-            </div>
-          </div>
+                    <div class="post-head">
+                        <div class="avatar"><i class="fa-solid <?= $icon ?>"></i></div>
+                        <div class="head-text">
+                            <strong><?= htmlspecialchars($item['title']) ?></strong>
+                            <span><?= htmlspecialchars($item['cat_title']) ?></span>
+                        </div>
+                    </div>
 
-          <div class="post-media"><img src="https://picsum.photos/seed/espresso-shot/600/600" alt="اسپرسو دبل" loading="lazy" /></div>
+                    <div class="post-media">
+                        <?php if ($has_img): ?>
+                            <img src="<?= htmlspecialchars(fix_img($item['image'])) ?>"
+                                 alt="<?= htmlspecialchars($item['title']) ?>" loading="lazy"/>
+                        <?php else: ?>
+                            <div style="background: linear-gradient(135deg, #f5efe7 0%, #e5c49d 100%); min-height: 280px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fa-solid <?= $icon ?>"
+                                   style="font-size: 72px; color: #fff; opacity: 0.55;"></i>
+                            </div>
+                        <?php endif; ?>
+                    </div>
 
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام" title="اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام" title="تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ" title="واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
+                    <div class="post-actions">
+                        <div class="post-actions-icons">
+                            <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i
+                                        class="fa-regular fa-heart"></i></button>
+                            <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i
+                                        class="fa-regular fa-comment"></i></button>
+                            <span class="share-sep"></span>
+                            <button class="icon-btn share-btn" type="button" data-platform="instagram"
+                                    title="اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
+                            <button class="icon-btn share-btn" type="button" data-platform="telegram" title="تلگرام"><i
+                                        class="fa-brands fa-telegram"></i></button>
+                            <button class="icon-btn share-btn" type="button" data-platform="whatsapp" title="واتس‌اپ"><i
+                                        class="fa-brands fa-whatsapp"></i></button>
+                        </div>
 
-            <div class="order-control">
-              <span class="order-price">۷۵٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper" role="group" aria-label="تعداد سفارش">
-                <button class="qty-btn minus" type="button" aria-label="کاهش تعداد"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش تعداد"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
+                        <div class="order-control">
+                            <span class="order-price"><?= fa_num($item['price']) ?> تومان</span>
+                            <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span>
+                            </button>
+                            <div class="qty-stepper">
+                                <button class="qty-btn minus" type="button"><i class="fa-solid fa-minus"></i></button>
+                                <span class="qty-value">۰</span>
+                                <button class="qty-btn plus" type="button"><i class="fa-solid fa-plus"></i></button>
+                            </div>
+                        </div>
+                    </div>
 
-          <div class="post-body">
-            <div class="post-title">اسپرسو دبل</div>
-            <p class="post-desc">دو شات اسپرسوی غلیظ با کرمای طلایی، برای شروعی پرانرژی. دانه‌های تازه‌آسیاب، بدون شکر پیشنهاد می‌شه.</p>
+                    <div class="post-body">
+                        <div class="post-title"><?= htmlspecialchars($item['title']) ?></div>
+                        <p class="post-desc"><?= htmlspecialchars($item['recipe'] ?: 'توضیحاتی برای این آیتم ثبت نشده است.') ?></p>
 
-            <div class="rating-block">
-              <div class="rating-summary">
+                        <div class="rating-block">
+                            <div class="rating-summary">
                 <span class="stars-readonly">
-                  <i class="fa-solid fa-star"></i>
-                  <i class="fa-solid fa-star"></i>
-                  <i class="fa-solid fa-star"></i>
-                  <i class="fa-solid fa-star"></i>
-                  <i class="fa-solid fa-star"></i>
+                  <?php for ($i = 1; $i <= 5; $i++): ?>
+                      <i class="fa-solid fa-star" style="opacity:<?= $i <= round($score) ? 1 : 0.28 ?>"></i>
+                  <?php endfor; ?>
                 </span>
-                <span>۴.۷ از ۵ (۳ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
+                                <span><?= $c_count > 0 ? fa_float($score) . ' از ۵ (' . fa_num($c_count) . ' نظر)' : '— از ۵ (۰ نظر)' ?></span>
+                            </div>
+                            <div class="rate-form">
+                                <span class="rate-label">امتیاز شما:</span>
+                                <div class="star-input">
+                                    <i class="fa-solid fa-star" data-value="1"></i>
+                                    <i class="fa-solid fa-star" data-value="2"></i>
+                                    <i class="fa-solid fa-star" data-value="3"></i>
+                                    <i class="fa-solid fa-star" data-value="4"></i>
+                                    <i class="fa-solid fa-star" data-value="5"></i>
+                                </div>
+                            </div>
+                        </div>
 
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۲)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
+                        <button class="comments-toggle" type="button">
+                            <span class="toggle-label">مشاهده نظرات (<?= fa_num($c_count) ?>)</span>
+                            <i class="fa-solid fa-chevron-down"></i>
+                        </button>
 
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
+                        <div class="comments-panel">
+                            <form class="comment-form">
+                                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
+                                <div class="comment-form-row">
+                                    <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
+                                    <button type="submit" class="submit-comment-btn">ارسال نظر</button>
+                                </div>
+                            </form>
 
-              <div class="comment-list">
-                <div class="comment-item">
-                  <div class="avatar-sm">ن</div>
-                  <div class="comment-body">
-                    <div class="comment-name-row">
-                      <strong>نیما رستمی</strong>
-                      <span class="comment-stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
+                            <div class="comment-list">
+                                <?php if (!empty($comments)): ?>
+                                    <?php foreach ($comments as $c):
+                                        $initial = mb_substr($c['fullname'] ?: 'م', 0, 1, 'UTF-8');
+                                        $cs = (int)$c['score'];
+                                        ?>
+                                        <div class="comment-item">
+                                            <div class="avatar-sm"><?= htmlspecialchars($initial) ?></div>
+                                            <div class="comment-body">
+                                                <div class="comment-name-row">
+                                                    <strong><?= htmlspecialchars($c['fullname']) ?></strong>
+                                                    <span class="comment-stars">
+                          <?php for ($i = 1; $i <= 5; $i++): ?>
+                              <i class="fa-solid fa-star" style="opacity:<?= $i <= $cs ? 1 : 0.25 ?>"></i>
+                          <?php endfor; ?>
+                        </span>
+                                                </div>
+                                                <p><?= nl2br(htmlspecialchars($c['comment_text'])) ?></p>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <div class="comment-empty">هنوز نظری ثبت نشده؛ اولین نفر باش!</div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
                     </div>
-                    <p>طعمش فوق‌العادس، دقیقاً همون تلخی که دوست دارم.</p>
-                  </div>
-                </div>
-                <div class="comment-item">
-                  <div class="avatar-sm">ا</div>
-                  <div class="comment-body">
-                    <div class="comment-name-row">
-                      <strong>الهام کریمی</strong>
-                      <span class="comment-stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star" style="opacity:0.25"></i></span>
-                    </div>
-                    <p>خوب بود ولی یکم داغ‌تر از حد معمول اومد.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم hb-2 ==================== -->
-        <article class="post-card" data-item="hb-2" data-category="hot-bar" data-price="98000" data-count="4" data-sum="19">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-mug-hot"></i></div>
-            <div class="head-text"><strong>لاته وانیلی</strong><span>بار گرم</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/vanilla-latte/600/600" alt="لاته وانیلی" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۹۸٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">لاته وانیلی</div>
-            <p class="post-desc">اسپرسو با شیر بخارداده و شربت وانیل خانگی. نرم، شیرین و مناسب عصرهای آروم.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۴.۸ از ۵ (۴ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۱)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-item">
-                  <div class="avatar-sm">پ</div>
-                  <div class="comment-body">
-                    <div class="comment-name-row">
-                      <strong>پارسا احمدی</strong>
-                      <span class="comment-stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                    </div>
-                    <p>بهترین لاته‌ای بود که تو یه کافه خوردم.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم hb-3 ==================== -->
-        <article class="post-card" data-item="hb-3" data-category="hot-bar" data-price="105000" data-count="1" data-sum="4">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-mug-hot"></i></div>
-            <div class="head-text"><strong>موکای کلاسیک</strong><span>بار گرم</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/classic-mocha/600/600" alt="موکای کلاسیک" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۱۰۵٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">موکای کلاسیک</div>
-            <p class="post-desc">ترکیب اسپرسو، شکلات تلخ بلژیکی و شیر گرم، تاپ شده با خامه.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star" style="opacity:0.28"></i></span>
-                <span>۴.۰ از ۵ (۱ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۰)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-empty">هنوز نظری ثبت نشده؛ اولین نفر باش!</div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم cb-1 ==================== -->
-        <article class="post-card" data-item="cb-1" data-category="cold-bar" data-price="82000" data-count="2" data-sum="9">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-mug-saucer"></i></div>
-            <div class="head-text"><strong>آیس آمریکانو</strong><span>بار سرد</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/iced-americano/600/600" alt="آیس آمریکانو" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۸۲٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">آیس آمریکانو</div>
-            <p class="post-desc">اسپرسو روی یخ با آب سرد، ساده و خنک‌کننده برای روزهای گرم.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۴.۵ از ۵ (۲ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۱)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-item">
-                  <div class="avatar-sm">س</div>
-                  <div class="comment-body">
-                    <div class="comment-name-row">
-                      <strong>سینا مرادی</strong>
-                      <span class="comment-stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                    </div>
-                    <p>تابستون بهترین انتخابه.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم cb-2 ==================== -->
-        <article class="post-card" data-item="cb-2" data-category="cold-bar" data-price="112000" data-count="2" data-sum="10">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-mug-saucer"></i></div>
-            <div class="head-text"><strong>کلد برو با شیر</strong><span>بار سرد</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/cold-brew-milk/600/600" alt="کلد برو با شیر" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۱۱۲٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">کلد برو با شیر</div>
-            <p class="post-desc">کلدبرو دوازده‌ساعته با شیر یخ‌زده و کمی شربت کارامل.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۵.۰ از ۵ (۲ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۰)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-empty">هنوز نظری ثبت نشده؛ اولین نفر باش!</div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم cb-3 ==================== -->
-        <article class="post-card" data-item="cb-3" data-category="cold-bar" data-price="118000" data-count="3" data-sum="12">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-mug-saucer"></i></div>
-            <div class="head-text"><strong>فراپه شکلاتی</strong><span>بار سرد</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/choco-frappe/600/600" alt="فراپه شکلاتی" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۱۱۸٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">فراپه شکلاتی</div>
-            <p class="post-desc">شیک یخ‌زده با شکلات، اسپرسو و کرم روی آن. دسرگونه و پرانرژی.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star" style="opacity:0.28"></i></span>
-                <span>۴.۰ از ۵ (۳ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۱)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-item">
-                  <div class="avatar-sm">م</div>
-                  <div class="comment-body">
-                    <div class="comment-name-row">
-                      <strong>مریم صادقی</strong>
-                      <span class="comment-stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star" style="opacity:0.25"></i></span>
-                    </div>
-                    <p>شیرینیش یکم زیاد بود برای من.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم bf-1 ==================== -->
-        <article class="post-card" data-item="bf-1" data-category="breakfast" data-price="145000" data-count="3" data-sum="13">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-egg"></i></div>
-            <div class="head-text"><strong>تخم‌مرغ عسلی با نان تست</strong><span>صبحانه</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/eggs-toast/600/600" alt="تخم‌مرغ عسلی با نان تست" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۱۴۵٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">تخم‌مرغ عسلی با نان تست</div>
-            <p class="post-desc">دو عدد تخم‌مرغ عسلی، نان تست کره‌ای و گوجه‌ی کبابی در کنارش.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star" style="opacity:0.28"></i></span>
-                <span>۴.۳ از ۵ (۳ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۰)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-empty">هنوز نظری ثبت نشده؛ اولین نفر باش!</div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم bf-2 ==================== -->
-        <article class="post-card" data-item="bf-2" data-category="breakfast" data-price="165000" data-count="4" data-sum="19">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-egg"></i></div>
-            <div class="head-text"><strong>پنکیک با عسل و توت‌فرنگی</strong><span>صبحانه</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/pancake-berries/600/600" alt="پنکیک با عسل و توت‌فرنگی" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۱۶۵٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">پنکیک با عسل و توت‌فرنگی</div>
-            <p class="post-desc">سه لایه پنکیک نرم، عسل طبیعی و توت‌فرنگی تازه.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۴.۸ از ۵ (۴ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۱)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-item">
-                  <div class="avatar-sm">آ</div>
-                  <div class="comment-body">
-                    <div class="comment-name-row">
-                      <strong>آیدا نوری</strong>
-                      <span class="comment-stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                    </div>
-                    <p>خیلی نرم و خوشمزه بود، حتماً دوباره سفارش می‌دم.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم ln-1 ==================== -->
-        <article class="post-card" data-item="ln-1" data-category="lunch" data-price="210000" data-count="2" data-sum="9">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-utensils"></i></div>
-            <div class="head-text"><strong>پاستا آلفردو مرغ</strong><span>ناهار</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/chicken-alfredo/600/600" alt="پاستا آلفردو مرغ" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۲۱۰٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">پاستا آلفردو مرغ</div>
-            <p class="post-desc">پاستای پنه با سس خامه‌ای، مرغ گریل‌شده و پارمزان تازه رنده‌شده.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۴.۵ از ۵ (۲ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۰)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-empty">هنوز نظری ثبت نشده؛ اولین نفر باش!</div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم ln-2 ==================== -->
-        <article class="post-card" data-item="ln-2" data-category="lunch" data-price="195000" data-count="1" data-sum="5">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-utensils"></i></div>
-            <div class="head-text"><strong>سالاد سزار با میگو</strong><span>ناهار</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/caesar-shrimp/600/600" alt="سالاد سزار با میگو" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۱۹۵٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">سالاد سزار با میگو</div>
-            <p class="post-desc">کاهوی تازه، میگوی سرخ‌شده، پنیر پارمزان و سس سزار خانگی.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۵.۰ از ۵ (۱ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۰)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-empty">هنوز نظری ثبت نشده؛ اولین نفر باش!</div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم dn-1 ==================== -->
-        <article class="post-card" data-item="dn-1" data-category="dinner" data-price="265000" data-count="3" data-sum="13">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-drumstick-bite"></i></div>
-            <div class="head-text"><strong>استیک مرغ با سبزیجات گریل</strong><span>شام</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/chicken-steak/600/600" alt="استیک مرغ با سبزیجات گریل" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۲۶۵٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">استیک مرغ با سبزیجات گریل</div>
-            <p class="post-desc">سینه‌مرغ گریل‌شده با سس مخصوص و سبزیجات فصل، مناسب شام سبک.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star" style="opacity:0.28"></i></span>
-                <span>۴.۳ از ۵ (۳ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۱)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-item">
-                  <div class="avatar-sm">ب</div>
-                  <div class="comment-body">
-                    <div class="comment-name-row">
-                      <strong>بهنام یوسفی</strong>
-                      <span class="comment-stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star" style="opacity:0.25"></i></span>
-                    </div>
-                    <p>طعم خوبی داشت، پرس‌ش هم مناسب بود.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم ck-1 ==================== -->
-        <article class="post-card" data-item="ck-1" data-category="cake" data-price="135000" data-count="3" data-sum="15">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-cake-candles"></i></div>
-            <div class="head-text"><strong>کیک شکلاتی لاوا</strong><span>کیک</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/lava-cake/600/600" alt="کیک شکلاتی لاوا" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۱۳۵٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">کیک شکلاتی لاوا</div>
-            <p class="post-desc">کیک شکلاتی گرم با مغز مذاب، سرو شده با یک اسکوپ بستنی وانیلی.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۵.۰ از ۵ (۳ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۱)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-item">
-                  <div class="avatar-sm">ر</div>
-                  <div class="comment-body">
-                    <div class="comment-name-row">
-                      <strong>رویا فرهادی</strong>
-                      <span class="comment-stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                    </div>
-                    <p>مغزش عالیه، حتماً امتحان کنید.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم ck-2 ==================== -->
-        <article class="post-card" data-item="ck-2" data-category="cake" data-price="128000" data-count="2" data-sum="9">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-cake-candles"></i></div>
-            <div class="head-text"><strong>چیزکیک نیویورکی</strong><span>کیک</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/newyork-cheesecake/600/600" alt="چیزکیک نیویورکی" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۱۲۸٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">چیزکیک نیویورکی</div>
-            <p class="post-desc">چیزکیک کلاسیک با بیسکوییت له‌شده و سس توت قرمز.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۴.۵ از ۵ (۲ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۰)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-empty">هنوز نظری ثبت نشده؛ اولین نفر باش!</div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم nc-1 ==================== -->
-        <article class="post-card" data-item="nc-1" data-category="non-coffee" data-price="88000" data-count="2" data-sum="9">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-lemon"></i></div>
-            <div class="head-text"><strong>لیموناد نعنا</strong><span>نوشیدنی‌های بدون قهوه</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/mint-lemonade/600/600" alt="لیموناد نعنا" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۸۸٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">لیموناد نعنا</div>
-            <p class="post-desc">لیموی تازه، نعنای خنک و کمی سودا؛ نوشیدنی بدون کافئین برای روزهای گرم.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۴.۵ از ۵ (۲ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۰)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-empty">هنوز نظری ثبت نشده؛ اولین نفر باش!</div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم nc-2 ==================== -->
-        <article class="post-card" data-item="nc-2" data-category="non-coffee" data-price="95000" data-count="3" data-sum="14">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-lemon"></i></div>
-            <div class="head-text"><strong>هات چاکلت</strong><span>نوشیدنی‌های بدون قهوه</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/hot-chocolate/600/600" alt="هات چاکلت" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۹۵٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">هات چاکلت</div>
-            <p class="post-desc">شکلات تلخ ذوب‌شده با شیر گرم و کمی دارچین.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۴.۷ از ۵ (۳ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۱)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-item">
-                  <div class="avatar-sm">ک</div>
-                  <div class="comment-body">
-                    <div class="comment-name-row">
-                      <strong>کیانا رضایی</strong>
-                      <span class="comment-stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                    </div>
-                    <p>خیلی خوش‌طعمه، دارچینش نکته‌ی خوبیه.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <!-- ==================== آیتم ds-1 ==================== -->
-        <article class="post-card" data-item="ds-1" data-category="dessert" data-price="132000" data-count="2" data-sum="10">
-          <div class="post-head">
-            <div class="avatar"><i class="fa-solid fa-ice-cream"></i></div>
-            <div class="head-text"><strong>تیرامیسو</strong><span>دسر</span></div>
-          </div>
-
-          <div class="post-media"><img src="https://picsum.photos/seed/tiramisu-cafe/600/600" alt="تیرامیسو" loading="lazy" /></div>
-
-          <div class="post-actions">
-            <div class="post-actions-icons">
-              <button class="icon-btn like-btn" type="button" aria-label="پسندیدن"><i class="fa-regular fa-heart"></i></button>
-              <button class="icon-btn comment-jump" type="button" aria-label="نظرات"><i class="fa-regular fa-comment"></i></button>
-              <span class="share-sep"></span>
-              <button class="icon-btn share-btn" type="button" data-platform="instagram" aria-label="اشتراک در اینستاگرام"><i class="fa-brands fa-instagram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="telegram" aria-label="اشتراک در تلگرام"><i class="fa-brands fa-telegram"></i></button>
-              <button class="icon-btn share-btn" type="button" data-platform="whatsapp" aria-label="اشتراک در واتس‌اپ"><i class="fa-brands fa-whatsapp"></i></button>
-            </div>
-
-            <div class="order-control">
-              <span class="order-price">۱۳۲٬۰۰۰ تومان</span>
-              <button class="add-order-btn" type="button"><i class="fa-solid fa-plus"></i><span>افزودن به سفارش</span></button>
-              <div class="qty-stepper">
-                <button class="qty-btn minus" type="button" aria-label="کاهش"><i class="fa-solid fa-minus"></i></button>
-                <span class="qty-value">۰</span>
-                <button class="qty-btn plus" type="button" aria-label="افزایش"><i class="fa-solid fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="post-body">
-            <div class="post-title">تیرامیسو</div>
-            <p class="post-desc">لایه‌های بیسکوییت آغشته به قهوه و کرم ماسکارپونه، پودر شده با کاکائو.</p>
-
-            <div class="rating-block">
-              <div class="rating-summary">
-                <span class="stars-readonly"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></span>
-                <span>۵.۰ از ۵ (۲ نظر)</span>
-              </div>
-              <div class="rate-form">
-                <span class="rate-label">امتیاز شما:</span>
-                <div class="star-input">
-                  <i class="fa-solid fa-star" data-value="1"></i>
-                  <i class="fa-solid fa-star" data-value="2"></i>
-                  <i class="fa-solid fa-star" data-value="3"></i>
-                  <i class="fa-solid fa-star" data-value="4"></i>
-                  <i class="fa-solid fa-star" data-value="5"></i>
-                </div>
-              </div>
-            </div>
-
-            <button class="comments-toggle" type="button">
-              <span class="toggle-label">مشاهده نظرات (۰)</span>
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-
-            <div class="comments-panel">
-              <form class="comment-form">
-                <textarea placeholder="نظرت رو درباره‌ی این آیتم بنویس..." required></textarea>
-                <div class="comment-form-row">
-                  <span class="rate-label">امتیازی که ثبت کردی برای این نظر لحاظ می‌شه.</span>
-                  <button type="submit" class="submit-comment-btn">ارسال نظر</button>
-                </div>
-              </form>
-
-              <div class="comment-list">
-                <div class="comment-empty">هنوز نظری ثبت نشده؛ اولین نفر باش!</div>
-              </div>
-            </div>
-          </div>
-        </article>
-
-      </div>
+                </article>
+            <?php endforeach; ?>
+        </div>
     </main>
-  </div>
+</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="script.js"></script>
+<script src="<?= $PATHS['jquery'] ?>"></script>
+<script src="<?= $PATHS['palib'] ?>"></script>
+<script src="<?= $PATHS['bootstrap_js'] ?>"></script>
+<script src="<?= $PATHS['script'] ?>"></script>
 </body>
 </html>
