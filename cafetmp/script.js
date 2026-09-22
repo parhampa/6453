@@ -21,9 +21,10 @@ const state = {
     user: null,
     tableNumber: null,
     orderQuantities: {},
-    myRatings: {},
-    myComments: {},
-    editingItemId: null,
+    myRatings: {},           // { itemId: lastScore }
+    myComments: {},          // { itemId: [ {id, score, text}, ... ] }
+    editingCommentId: null,  // شناسه نظری که در حال ویرایشه
+    editingItemId: null,     // آیتمی که در حال ویرایش نظرش هستیم
     currentDiscount: 0,
     birthdateChecked: false,
     isSearchMode: false,
@@ -92,6 +93,18 @@ function normalizePersian(str) {
         .replace(/[^\p{L}\p{N}\s]/gu, " ")
         .replace(/\s+/g, " ")
         .trim();
+}
+
+function isSuccessResponse(res) {
+    if (!res) return false;
+    if (res.success === true) return true;
+    if (parseInt(res.status, 10) === 1) return true;
+    return false;
+}
+
+function getResponseMessage(res, fallback) {
+    if (!res) return fallback || "خطای نامشخص";
+    return res.message || res.msg || fallback || "خطای نامشخص";
 }
 
 function findItemCard(id) {
@@ -588,7 +601,7 @@ function fetchDiscount() {
     })
         .then((r) => r.json())
         .then((res) => {
-            if (res && res.status === 1) {
+            if (isSuccessResponse(res)) {
                 state.currentDiscount = parseInt(res.discount_percent, 10) || 0;
                 updateDiscountDisplay();
             }
@@ -639,6 +652,8 @@ if (sendOrderBtn) {
         const tableInput = document.getElementById("orderTableNumber");
         const tableError = document.getElementById("orderTableError");
         const tableNumber = tableInput ? parseInt(tableInput.value, 10) : NaN;
+        const descriptionInput = document.getElementById("orderDescription");
+        const description = descriptionInput ? descriptionInput.value.trim() : "";
 
         if (!tableNumber || tableNumber < 1 || tableNumber > 99) {
             if (tableError) tableError.classList.add("is-visible");
@@ -670,14 +685,17 @@ if (sendOrderBtn) {
                     first_name: state.user.firstName,
                     last_name: state.user.lastName,
                     phone: state.user.phone,
+                    description: description,
                     items: items,
                 }),
             });
 
             const res = await response.json();
 
-            if (res && res.status === 1) {
+            if (isSuccessResponse(res)) {
                 state.orderQuantities = {};
+                const descEl = document.getElementById("orderDescription");
+                if (descEl) descEl.value = "";
                 updateOrderCount();
                 document.querySelectorAll(".post-card").forEach(updateCardQtyDisplay);
 
@@ -685,10 +703,14 @@ if (sendOrderBtn) {
 
                 if (orderModal) orderModal.hide();
 
+                const invoiceId = res.invoice_id || res.invoiceId || 0;
+
                 showMessage({
                     type: "success",
                     title: "سفارش ثبت شد ✅",
-                    text: `شماره پیگیری شما: ${Number(res.invoice_id).toLocaleString("fa-IR")}`,
+                    text: invoiceId
+                        ? `شماره پیگیری شما: ${Number(invoiceId).toLocaleString("fa-IR")}`
+                        : getResponseMessage(res, "سفارش شما با موفقیت ثبت شد."),
                     okText: "عالیه",
                     showCancel: false,
                 });
@@ -696,7 +718,7 @@ if (sendOrderBtn) {
                 showMessage({
                     type: "error",
                     title: "خطا در ثبت سفارش",
-                    text: (res && res.msg) ? res.msg : "مشکلی پیش آمد. دوباره تلاش کن.",
+                    text: getResponseMessage(res, "مشکلی پیش آمد. دوباره تلاش کن."),
                     okText: "متوجه شدم",
                     showCancel: false,
                 });
@@ -754,7 +776,7 @@ function checkBirthdate() {
     })
         .then((r) => r.json())
         .then((res) => {
-            if (res && res.status === 1 && res.has_birthdate === 0) {
+            if (isSuccessResponse(res) && parseInt(res.has_birthdate, 10) === 0) {
                 showBirthdateModal();
             }
         })
@@ -797,13 +819,13 @@ function bindBirthdateForm() {
         })
             .then((r) => r.json())
             .then((res) => {
-                if (res && res.status === 1) {
+                if (isSuccessResponse(res)) {
                     const modalEl = document.getElementById("birthdateModal");
                     const modal = bootstrap.Modal.getInstance(modalEl);
                     if (modal) modal.hide();
                     showToast("تاریخ تولدت ثبت شد 🎂", "fa-cake-candles");
                 } else {
-                    err.textContent = (res && res.msg) ? res.msg : "خطا در ثبت تاریخ تولد";
+                    err.textContent = getResponseMessage(res, "خطا در ثبت تاریخ تولد");
                     err.style.display = "block";
                 }
             })
@@ -841,37 +863,41 @@ function loadMyComments() {
     })
         .then((r) => r.json())
         .then((res) => {
-            if (!res || res.status !== 1 || !res.comments) return;
+            if (!isSuccessResponse(res) || !res.comments) return;
 
             Object.keys(res.comments).forEach((itemId) => {
-                const info = res.comments[itemId];
-                const score = parseInt(info.my_score, 10) || 0;
-                const text = info.my_comment_text || "";
-                const commentId = parseInt(info.my_comment_id, 10) || 0;
+                const commentsList = res.comments[itemId];
+                if (!Array.isArray(commentsList)) return;
 
-                if (score > 0) state.myRatings[itemId] = score;
-                if (commentId > 0) {
-                    state.myComments[itemId] = {
-                        id: commentId,
-                        score: score,
-                        text: text,
-                    };
-                }
+                state.myComments[itemId] = [];
+                let latestScore = 0;
+
+                commentsList.forEach((c) => {
+                    const id = parseInt(c.id || c.my_comment_id, 10) || 0;
+                    const score = parseInt(c.score || c.my_score, 10) || 0;
+                    const text = c.comment_text || c.my_comment_text || "";
+
+                    if (id > 0) {
+                        state.myComments[itemId].push({id, score, text});
+                        if (latestScore === 0) latestScore = score;
+                    }
+                });
+
+                if (latestScore > 0) state.myRatings[itemId] = latestScore;
 
                 const cards = document.querySelectorAll(`.post-card[data-item="${itemId}"]`);
                 cards.forEach((card) => {
                     const stars = card.querySelectorAll(".star-input i");
                     stars.forEach((s) => {
-                        s.classList.toggle("active", Number(s.dataset.value) <= score);
+                        s.classList.toggle("active", Number(s.dataset.value) <= latestScore);
                     });
 
-                    const commentItem = card.querySelector(
-                        `.comment-item[data-comment-id="${commentId}"]`
-                    );
-
-                    if (commentItem) {
-                        markCommentAsMine(card, commentItem, commentId);
-                    }
+                    state.myComments[itemId].forEach((c) => {
+                        const commentItem = card.querySelector(
+                            `.comment-item[data-comment-id="${c.id}"]`
+                        );
+                        if (commentItem) markCommentAsMine(card, commentItem, c.id);
+                    });
                 });
             });
         })
@@ -906,12 +932,14 @@ function markCommentAsMine(card, commentItem, commentId) {
 }
 
 function startEditComment(card, commentId) {
-    if (!card) return;
+    if (!card || !commentId) return;
 
     const itemId = card.dataset.item;
-    const myComment = state.myComments[itemId];
+    const list = state.myComments[itemId] || [];
+    const myComment = list.find((c) => c.id === commentId);
     if (!myComment) return;
 
+    state.editingCommentId = commentId;
     state.editingItemId = itemId;
 
     const form = card.querySelector(".comment-form");
@@ -957,6 +985,7 @@ function cancelEditComment(card) {
     if (!card) return;
 
     const itemId = card.dataset.item;
+    state.editingCommentId = null;
     state.editingItemId = null;
 
     const form = card.querySelector(".comment-form");
@@ -986,7 +1015,7 @@ function deleteComment(card, commentId) {
     askConfirm({
         type: "delete",
         title: "حذف نظر",
-        text: "مطمئنی می‌خوای نظرت رو برای این آیتم حذف کنی؟ این کار قابل بازگشت نیست.",
+        text: "مطمئنی می‌خوای این نظر رو حذف کنی؟ این کار قابل بازگشت نیست.",
         okText: "بله، حذف کن",
         cancelText: "انصراف",
         danger: true,
@@ -1004,38 +1033,41 @@ function deleteComment(card, commentId) {
             body: JSON.stringify({
                 action: "delete",
                 phone: user.phone,
-                menu_item_id: Number(itemId)
+                menu_item_id: Number(itemId),
+                comment_id: Number(commentId)
             })
         })
             .then((r) => r.json())
             .then((res) => {
-                if (!res || res.status !== 1) {
+                if (!isSuccessResponse(res)) {
                     showMessage({
                         type: "error",
                         title: "خطا در حذف",
-                        text: (res && res.msg) ? res.msg : "مشکلی در حذف نظر پیش آمد.",
+                        text: getResponseMessage(res, "مشکلی در حذف نظر پیش آمد."),
                         okText: "باشه",
                         showCancel: false,
                     });
                     return;
                 }
 
-                delete state.myComments[itemId];
-                delete state.myRatings[itemId];
+                if (state.myComments[itemId]) {
+                    state.myComments[itemId] = state.myComments[itemId]
+                        .filter((c) => c.id !== commentId);
+                }
 
                 const allCards = document.querySelectorAll(`.post-card[data-item="${itemId}"]`);
                 allCards.forEach((c) => {
                     const item = c.querySelector(`.comment-item[data-comment-id="${commentId}"]`);
                     if (item) item.remove();
 
-                    c.dataset.count = res.new_count;
-                    c.dataset.sum = res.new_sum;
+                    if (res.new_count !== undefined) c.dataset.count = res.new_count;
+                    if (res.new_sum !== undefined) c.dataset.sum = res.new_sum;
                     updateCardRatingDisplay(c);
 
                     const toggleBtn = c.querySelector(".comments-toggle");
                     const label = toggleBtn ? toggleBtn.querySelector(".toggle-label") : null;
                     if (label) {
-                        label.textContent = `مشاهده نظرات (${Number(res.new_count).toLocaleString("fa-IR")})`;
+                        label.textContent = `مشاهده نظرات (${Number(res.new_count || 0).toLocaleString("fa-IR")})`;
                     }
 
                     const list = c.querySelector(".comment-list");
@@ -1043,10 +1075,12 @@ function deleteComment(card, commentId) {
                         list.innerHTML = '<div class="comment-empty">هنوز نظری ثبت نشده؛ اولین نفر باش!</div>';
                     }
 
-                    const stars = c.querySelectorAll(".star-input i");
-                    stars.forEach((s) => s.classList.remove("active"));
+                    if (!state.myComments[itemId] || state.myComments[itemId].length === 0) {
+                        const stars = c.querySelectorAll(".star-input i");
+                        stars.forEach((s) => s.classList.remove("active"));
+                    }
 
-                    if (state.editingItemId === itemId) {
+                    if (state.editingCommentId === commentId) {
                         cancelEditComment(c);
                     }
                 });
@@ -1065,7 +1099,7 @@ function deleteComment(card, commentId) {
     });
 }
 
-function submitComment(card, score, text) {
+function submitComment(card, score, text, commentId) {
     const user = getStoredUser();
     if (!user) {
         showMessage({
@@ -1081,16 +1115,27 @@ function submitComment(card, score, text) {
 
     const itemId = card.dataset.item;
 
-    return fetch(COMMENT_SEND_URL, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            action: "save",
+    const payload = commentId
+        ? {
+            action: "update",
+            phone: user.phone,
+            menu_item_id: Number(itemId),
+            comment_id: Number(commentId),
+            score: score,
+            comment_text: text
+        }
+        : {
+            action: "add",
             phone: user.phone,
             menu_item_id: Number(itemId),
             score: score,
             comment_text: text
-        })
+        };
+
+    return fetch(COMMENT_SEND_URL, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
     })
         .then((r) => r.json());
 }
@@ -1098,8 +1143,8 @@ function submitComment(card, score, text) {
 function applyCommentToCard(card, comment, newCount, newSum, isUpdate, commentId) {
     if (!card) return;
 
-    card.dataset.count = newCount;
-    card.dataset.sum = newSum;
+    if (newCount !== undefined) card.dataset.count = newCount;
+    if (newSum !== undefined) card.dataset.sum = newSum;
     updateCardRatingDisplay(card);
 
     const list = card.querySelector(".comment-list");
@@ -1109,8 +1154,8 @@ function applyCommentToCard(card, comment, newCount, newSum, isUpdate, commentId
     if (empty) empty.remove();
 
     if (isUpdate) {
-        const oldMine = list.querySelector(".comment-item.is-mine");
-        if (oldMine) oldMine.remove();
+        const oldItem = list.querySelector(`.comment-item[data-comment-id="${commentId}"]`);
+        if (oldItem) oldItem.remove();
     }
 
     const initials = (comment.fullname || "?").trim().charAt(0) || "?";
@@ -1147,7 +1192,7 @@ function applyCommentToCard(card, comment, newCount, newSum, isUpdate, commentId
     const toggleBtn = card.querySelector(".comments-toggle");
     const label = toggleBtn ? toggleBtn.querySelector(".toggle-label") : null;
     if (label) {
-        label.textContent = `مشاهده نظرات (${Number(newCount).toLocaleString("fa-IR")})`;
+        label.textContent = `مشاهده نظرات (${Number(newCount || 0).toLocaleString("fa-IR")})`;
     }
 }
 
@@ -1249,25 +1294,45 @@ function wireItemCard(card) {
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> در حال ارسال...';
 
-            submitComment(card, score, text)
-                .then((res) => {
-                    if (res && res.status === 1) {
-                        const isUpdate = res.action === "update";
-                        const commentId = res.comment_id || 0;
+            const editingId = state.editingCommentId;
 
-                        state.myComments[itemId] = {
-                            id: commentId,
+            submitComment(card, score, text, editingId)
+                .then((res) => {
+                    if (isSuccessResponse(res)) {
+                        const doAction = res.action || (editingId ? "update" : "add");
+                        const isUpdate = (doAction === "update");
+                        const savedCommentId = res.comment_id || res.commentId || editingId || 0;
+
+                        const commentData = res.comment || {
+                            fullname: state.user ? `${state.user.firstName} ${state.user.lastName}` : "کاربر",
                             score: score,
-                            text: text,
+                            comment_text: text,
+                            comment_date: new Date().toISOString().slice(0, 10)
                         };
+
+                        if (isUpdate) {
+                            const list = state.myComments[itemId] || [];
+                            const idx = list.findIndex((c) => c.id === savedCommentId);
+                            if (idx >= 0) {
+                                list[idx].score = score;
+                                list[idx].text = text;
+                            }
+                        } else {
+                            if (!state.myComments[itemId]) state.myComments[itemId] = [];
+                            state.myComments[itemId].push({
+                                id: savedCommentId,
+                                score: score,
+                                text: text
+                            });
+                        }
 
                         applyCommentToCard(
                             card,
-                            res.comment,
+                            commentData,
                             res.new_count,
                             res.new_sum,
                             isUpdate,
-                            commentId
+                            savedCommentId
                         );
 
                         ta.value = "";
@@ -1285,8 +1350,9 @@ function wireItemCard(card) {
                         );
 
                         openPanel();
+
                     } else {
-                        const msg = (res && res.msg) ? res.msg : "خطا در ثبت نظر";
+                        const msg = getResponseMessage(res, "خطا در ثبت نظر");
                         showFormMessage(form, msg, "error");
                         showToast(msg, "fa-triangle-exclamation");
                     }
@@ -1297,7 +1363,7 @@ function wireItemCard(card) {
                 })
                 .finally(() => {
                     submitBtn.disabled = false;
-                    if (state.editingItemId === itemId) {
+                    if (state.editingCommentId) {
                         submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> ذخیره تغییرات';
                     } else {
                         submitBtn.innerHTML = originalHtml;
@@ -1330,17 +1396,11 @@ const searchResultsEmpty = document.getElementById("searchResultsEmpty");
 const searchResultsEmptyBtn = document.getElementById("searchResultsEmptyBtn");
 const categoriesNormalView = document.getElementById("categoriesNormalView");
 
-/* کش عرض سرچ‌بار برای نگه داشتن حالت sticky */
 let searchSectionTop = 0;
-let searchObserver = null;
 
-/**
- * محاسبه‌ی موقعیت اولیه‌ی سرچ‌بار برای فعال‌سازی sticky
- */
 function updateSearchSectionPosition() {
     if (!searchSection) return;
 
-    /* اگه استیکی بود، موقتاً برش داریم تا موقعیت طبیعی حساب بشه */
     const wasSticky = searchSection.classList.contains("is-sticky");
     if (wasSticky) {
         searchSection.classList.remove("is-sticky");
@@ -1354,13 +1414,9 @@ function updateSearchSectionPosition() {
     }
 }
 
-/**
- * فعال/غیرفعال کردن حالت sticky بر اساس اسکرول
- */
 function handleSearchScroll() {
     if (!searchSection) return;
 
-    /* فقط وقتی در حالت جستجو هستیم یا فوکوس روی input هست، sticky میشه */
     const shouldSticky = state.isSearchMode ||
         document.activeElement === searchInput;
 
@@ -1371,7 +1427,6 @@ function handleSearchScroll() {
 
     const scrollY = window.pageYOffset;
 
-    /* فاصله از بالای صفحه برای فعال کردن sticky */
     if (scrollY >= searchSectionTop - 80) {
         searchSection.classList.add("is-sticky");
     } else {
@@ -1379,12 +1434,8 @@ function handleSearchScroll() {
     }
 }
 
-/**
- * کلون کردن کارت منو برای نمایش در نتایج جستجو
- */
 function cloneCardForSearch(sourceCard) {
     const clone = sourceCard.cloneNode(true);
-
     clone.style.display = "";
 
     const titleEl = clone.querySelector(".post-title");
@@ -1395,9 +1446,6 @@ function cloneCardForSearch(sourceCard) {
     return clone;
 }
 
-/**
- * هایلایت کلمات جستجو در عنوان کارت
- */
 function highlightCard(card, query) {
     const titleEl = card.querySelector(".post-title");
     if (!titleEl) return;
@@ -1424,9 +1472,6 @@ function highlightCard(card, query) {
     titleEl.innerHTML = html;
 }
 
-/**
- * اجرای جستجو
- */
 function performSearch(query) {
     const q = normalizePersian(query);
     state.searchQuery = q;
@@ -1440,7 +1485,6 @@ function performSearch(query) {
 
     if (searchSection) searchSection.classList.add("is-searching");
 
-    /* پیدا کردن آیتم‌های مطابق */
     const sourceCards = document.querySelectorAll("#itemFeed .post-card");
     const matches = [];
 
@@ -1455,15 +1499,12 @@ function performSearch(query) {
         if (matched) matches.push(card);
     });
 
-    /* نمایش بخش نتایج */
     if (searchResultsSection) searchResultsSection.classList.add("is-visible");
     if (categoriesNormalView) categoriesNormalView.style.display = "none";
     if (itemsPage) itemsPage.style.display = "none";
 
-    /* پاک کردن نتایج قبلی */
     if (searchResultsFeed) searchResultsFeed.innerHTML = "";
 
-    /* اگه نتیجه‌ای نبود */
     if (matches.length === 0) {
         if (searchResultsEmpty) searchResultsEmpty.classList.add("is-visible");
         if (searchResultsCount) searchResultsCount.textContent = "";
@@ -1472,7 +1513,6 @@ function performSearch(query) {
 
     if (searchResultsEmpty) searchResultsEmpty.classList.remove("is-visible");
 
-    /* کلون کردن کارت‌ها و اضافه کردن به نتایج */
     matches.forEach((source) => {
         const clone = cloneCardForSearch(source);
         if (searchResultsFeed) searchResultsFeed.appendChild(clone);
@@ -1481,22 +1521,28 @@ function performSearch(query) {
         updateCardRatingDisplay(clone);
         wireItemCard(clone);
         highlightCard(clone, q);
+
+        const itemId = clone.dataset.item;
+        if (state.myRatings[itemId]) {
+            const stars = clone.querySelectorAll(".star-input i");
+            stars.forEach((s) => {
+                s.classList.toggle("active", Number(s.dataset.value) <= state.myRatings[itemId]);
+            });
+        }
+
+        if (state.myComments[itemId]) {
+            state.myComments[itemId].forEach((c) => {
+                const ci = clone.querySelector(`.comment-item[data-comment-id="${c.id}"]`);
+                if (ci) markCommentAsMine(clone, ci, c.id);
+            });
+        }
     });
 
-    /* آپدیت شمارنده */
     if (searchResultsCount) {
         searchResultsCount.textContent = `${matches.length.toLocaleString("fa-IR")} آیتم پیدا شد`;
     }
-
-    /* ⚠️ اسکرول به بخش نتایج — فقط یک بار اون هم به شکل ملایم،
-       و اگه از موقعیت اولیه‌ی سرچ پایین‌تریم.
-       یا حتی اصلاً اسکرول نکنیم — برای همینه که حذفش کردیم */
-    /* NO SCROLL */
 }
 
-/**
- * خارج شدن از حالت جستجو
- */
 function exitSearchMode() {
     state.isSearchMode = false;
     state.searchQuery = "";
@@ -1510,7 +1556,6 @@ function exitSearchMode() {
 
     if (searchSection) {
         searchSection.classList.remove("is-searching");
-        /* اگه فوکوس روی input نبود، sticky رو هم بردار */
         if (document.activeElement !== searchInput) {
             searchSection.classList.remove("is-sticky");
         }
@@ -1525,11 +1570,9 @@ function debounce(fn, delay) {
     };
 }
 
-/* --- رویدادهای سرچ‌بار --- */
 if (searchInput) {
     searchInput.addEventListener("focus", () => {
         if (searchBox) searchBox.classList.add("is-focused");
-        /* اگه متن داره، sticky فعال بشه */
         if (searchInput.value.trim()) {
             handleSearchScroll();
         }
@@ -1537,7 +1580,6 @@ if (searchInput) {
 
     searchInput.addEventListener("blur", () => {
         if (searchBox) searchBox.classList.remove("is-focused");
-        /* بعد از بلور، اگه در حالت جستجو نبودیم sticky رو بردار */
         setTimeout(() => {
             if (!state.isSearchMode && searchSection) {
                 searchSection.classList.remove("is-sticky");
@@ -1558,7 +1600,6 @@ if (searchInput) {
 
         document.querySelectorAll(".search-chip").forEach((c) => c.classList.remove("is-active"));
 
-        /* اگه متن داره، sticky فعال بشه */
         if (val.trim()) {
             updateSearchSectionPosition();
             if (searchSection) searchSection.classList.add("is-sticky");
@@ -1578,7 +1619,6 @@ if (searchInput) {
     });
 }
 
-/* دکمه پاک کردن */
 if (searchClearBtn) {
     searchClearBtn.addEventListener("click", () => {
         if (searchInput) {
@@ -1591,7 +1631,6 @@ if (searchClearBtn) {
     });
 }
 
-/* چیپ‌های پیشنهادی */
 document.querySelectorAll(".search-chip").forEach((chip) => {
     chip.addEventListener("click", () => {
         const term = chip.dataset.chip || "";
@@ -1605,7 +1644,6 @@ document.querySelectorAll(".search-chip").forEach((chip) => {
             if (searchBox) searchBox.classList.add("has-value");
         }
 
-        /* فعال‌سازی sticky */
         updateSearchSectionPosition();
         if (searchSection) searchSection.classList.add("is-sticky");
 
@@ -1613,7 +1651,6 @@ document.querySelectorAll(".search-chip").forEach((chip) => {
     });
 });
 
-/* دکمه پاک کردن جستجو در حالت خالی */
 if (searchResultsEmptyBtn) {
     searchResultsEmptyBtn.addEventListener("click", () => {
         if (searchInput) {
@@ -1626,7 +1663,6 @@ if (searchResultsEmptyBtn) {
     });
 }
 
-/* لیسنر اسکرول برای فعال/غیرفعال کردن sticky */
 window.addEventListener("scroll", handleSearchScroll, {passive: true});
 window.addEventListener("resize", updateSearchSectionPosition, {passive: true});
 
@@ -1749,8 +1785,87 @@ function showTrackingDetail(order) {
             + "<strong>" + faNum(total) + " تومان</strong>"
             + "</div>";
 
+        /* ⭐ دکمه حذف سفارش در جزئیات — فقط اگر قابل حذف باشد */
+        if (order.can_delete && parseInt(order.can_delete, 10) === 1) {
+            sumHtml += '<button type="button" class="tracking-delete-btn" data-invoice-id="' + parseInt(order.id, 10) + '">'
+                + '<i class="fa-solid fa-trash-can"></i>'
+                + '<span>حذف این سفارش</span>'
+                + '</button>';
+        }
+
         sumEl.innerHTML = sumHtml;
+
+        /* ⭐ بایند رویداد حذف */
+        const delBtn = sumEl.querySelector(".tracking-delete-btn");
+        if (delBtn) {
+            delBtn.addEventListener("click", () => {
+                confirmDeleteOrder(parseInt(delBtn.dataset.invoiceId, 10));
+            });
+        }
     }
+}
+
+/* ⭐ تأیید و ارسال درخواست حذف سفارش */
+function confirmDeleteOrder(invoiceId) {
+    if (!invoiceId) return;
+
+    askConfirm({
+        type: "delete",
+        title: "حذف سفارش",
+        text: "مطمئنی می‌خوای این سفارش رو حذف کنی؟ این کار قابل بازگشت نیست.",
+        okText: "بله، حذف کن",
+        cancelText: "انصراف",
+        danger: true,
+    }).then((confirmed) => {
+        if (!confirmed) return;
+        deleteOrder(invoiceId);
+    });
+}
+
+function deleteOrder(invoiceId) {
+    const user = getStoredUser();
+    if (!user) {
+        if (welcomeModal) welcomeModal.show();
+        return;
+    }
+
+    fetch(ORDERS_URL, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            action: "delete",
+            phone: user.phone,
+            cafe_id: CAFE_ID,
+            invoice_id: invoiceId
+        })
+    })
+        .then((r) => r.json())
+        .then((res) => {
+            if (isSuccessResponse(res)) {
+                showToast("سفارش با موفقیت حذف شد", "fa-trash-can");
+                /* برگرد به لیست و دوباره بارگذاری کن */
+                showTrackingList();
+                loadTrackingOrders();
+                fetchDiscount();
+            } else {
+                showMessage({
+                    type: "error",
+                    title: "خطا در حذف سفارش",
+                    text: getResponseMessage(res, "امکان حذف این سفارش وجود ندارد."),
+                    okText: "متوجه شدم",
+                    showCancel: false,
+                });
+            }
+        })
+        .catch(() => {
+            showMessage({
+                type: "error",
+                title: "خطای ارتباط",
+                text: "ارتباط با سرور برقرار نشد. دوباره تلاش کن.",
+                okText: "باشه",
+                showCancel: false,
+            });
+        });
 }
 
 function openTrackingModal() {
@@ -1789,7 +1904,7 @@ function loadTrackingOrders() {
         .then((r) => r.json())
         .then((res) => {
             if (loading) loading.classList.remove("is-visible");
-            if (!res || res.status !== 1) {
+            if (!isSuccessResponse(res)) {
                 if (list) list.innerHTML = '<div class="tracking-empty is-visible"><i class="fa-solid fa-triangle-exclamation"></i><p>خطا در دریافت سفارشات</p></div>';
                 return;
             }
@@ -1825,6 +1940,7 @@ function renderOrders(orders) {
         const subtotal = Number(o.subtotal) || 0;
         const total = Number(o.total) || 0;
         const discountAmount = discountPercent > 0 ? (subtotal - total) : 0;
+        const canDelete = parseInt(o.can_delete, 10) === 1;
 
         let discountHtml = "";
         if (discountPercent > 0) {
@@ -1848,6 +1964,16 @@ function renderOrders(orders) {
                 + "</div>";
         }
 
+        /* ⭐ دکمه حذف در لیست — فقط برای سفارش‌های قابل حذف */
+        let deleteBtnHtml = "";
+        if (canDelete) {
+            deleteBtnHtml = '<button type="button" class="tracking-list-delete-btn" '
+                + 'data-invoice-id="' + parseInt(o.id, 10) + '" '
+                + 'aria-label="حذف سفارش" title="حذف سفارش">'
+                + '<i class="fa-solid fa-trash-can"></i>'
+                + '</button>';
+        }
+
         html += '<div class="tracking-item" data-order-index="' + index + '">'
             + '<div class="tracking-head">'
             + '<span class="tracking-id">سفارش #' + faNum(o.id) + "</span>"
@@ -1856,6 +1982,7 @@ function renderOrders(orders) {
             + '<i class="fa-solid ' + escapeHtml(o.status_icon) + '"></i> '
             + escapeHtml(o.status_label)
             + "</span>"
+            + deleteBtnHtml
             + '<span class="tracking-item-arrow"><i class="fa-solid fa-chevron-left"></i></span>'
             + "</div>"
             + "</div>"
@@ -1883,6 +2010,16 @@ function renderOrders(orders) {
                 const idx = parseInt(item.dataset.orderIndex, 10);
                 const order = lastTrackingOrders[idx];
                 if (order) showTrackingDetail(order);
+            });
+        });
+
+        /* ⭐ بایند دکمه‌های حذف در لیست (جلوگیری از باز شدن جزئیات) */
+        list.querySelectorAll(".tracking-list-delete-btn").forEach((btn) => {
+            btn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const invId = parseInt(btn.dataset.invoiceId, 10);
+                if (invId) confirmDeleteOrder(invId);
             });
         });
     }
@@ -2004,7 +2141,6 @@ window.addEventListener("DOMContentLoaded", () => {
         loadMyComments();
     }
 
-    /* محاسبه‌ی موقعیت اولیه‌ی سرچ‌بار */
     setTimeout(updateSearchSectionPosition, 100);
     window.addEventListener("load", updateSearchSectionPosition);
 

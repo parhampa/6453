@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Sep 20, 2026 at 01:54 PM
+-- Generation Time: Sep 22, 2026 at 11:57 AM
 -- Server version: 10.4.11-MariaDB
 -- PHP Version: 7.4.6
 
@@ -474,7 +474,8 @@ INSERT INTO `act_log` (`id`, `user`, `user_type`, `file_name`, `place_title`, `a
 (422, '09155630215', 'client', 'cafe_categories.php', 'تعریف دسته بندی کافه‌ها', 'editform', 'نمایش فرم ویرایش اطلاعات', 'cafe_categories', 'id', 1, '1', '-', '2026-09-20', '1789901195274'),
 (423, '09155630215', 'client', 'cafe_categories.php', 'تعریف دسته بندی کافه‌ها', 'show', 'نمایش اطلاعات', 'cafe_categories', 'id', 1, '0', '-', '2026-09-20', '1789901197563'),
 (424, '09155630215', 'client', 'cafe_categories.php', 'تعریف دسته بندی کافه‌ها', 'editform', 'نمایش فرم ویرایش اطلاعات', 'cafe_categories', 'id', 1, '3', '-', '2026-09-20', '1789901198888'),
-(425, '09155630215', 'client', 'cafe_categories.php', 'تعریف دسته بندی کافه‌ها', 'show', 'نمایش اطلاعات', 'cafe_categories', 'id', 1, '0', '-', '2026-09-20', '1789901200554');
+(425, '09155630215', 'client', 'cafe_categories.php', 'تعریف دسته بندی کافه‌ها', 'show', 'نمایش اطلاعات', 'cafe_categories', 'id', 1, '0', '-', '2026-09-20', '1789901200554'),
+(426, 'admin', 'admin', 'invoices.php', 'تعریف فاکتورها', 'show', 'نمایش اطلاعات', 'invoices', 'id', 1, '0', '-', '2026-09-22', '1790071016138');
 
 -- --------------------------------------------------------
 
@@ -599,8 +600,9 @@ CREATE TABLE `comments` (
 --
 
 INSERT INTO `comments` (`id`, `fullname`, `score`, `comment_text`, `comment_date`, `menu_item_id`, `customer_id`, `status`) VALUES
-(1, 'اصغر', 5, 'سشیشس', '2026-09-15', 1, 0, 1),
-(3, 'مهدی حسینی', 3, 'خوب بود ولی بهتر هم میتونست باشه', '2026-09-20', 1, 5, 1);
+(3, 'مهدی حسینی', 2, 'شسیسیزطر', '2026-09-21', 1, 5, 1),
+(4, 'مهدی حسینی', 4, 'محشره', '2026-09-21', 2, 5, 1),
+(5, 'مهدی حسینی', 3, 'asdghjasdxzc', '2026-09-21', 1, 5, 1);
 
 -- --------------------------------------------------------
 
@@ -658,7 +660,9 @@ INSERT INTO `invoices` (`id`, `invoice_date`, `table_number`, `discount_percent`
 (6, '2026-09-20', 10, 0, 4, 1, 0, 5),
 (7, '2026-09-20', 10, 0, 4, 1, 0, 0),
 (8, '2026-09-20', 12, 0, 4, 1, 0, 0),
-(9, '2026-09-20', 12, 0, 5, 1, 0, 0);
+(9, '2026-09-20', 12, 0, 5, 1, 0, 0),
+(10, '2026-09-21', 6, 0, 5, 1, 0, 0),
+(11, '2026-09-21', 4, 0, 5, 1, 0, 0);
 
 -- --------------------------------------------------------
 
@@ -696,7 +700,10 @@ INSERT INTO `invoice_items` (`id`, `invoice_id`, `menu_item_id`, `unit_price`, `
 (18, 6, 1, '100000', 1),
 (19, 7, 2, '50000', 1),
 (20, 8, 2, '50000', 1),
-(21, 9, 1, '100000', 2);
+(21, 9, 1, '100000', 2),
+(22, 10, 2, '50000', 2),
+(23, 11, 1, '100000', 1),
+(24, 11, 2, '50000', 3);
 
 -- --------------------------------------------------------
 
@@ -815,7 +822,9 @@ INSERT INTO `users_ip` (`id`, `ip`, `username`, `country`, `tarikh`, `pages`) VA
 (4, '::1', 'no no username', 0, '2026-09-17', 78),
 (5, '::1', 'no no username', 0, '2026-09-18', 110),
 (6, '::1', 'no no username', 0, '2026-09-19', 389),
-(7, '::1', 'no no username', 0, '2026-09-20', 195);
+(7, '::1', 'no no username', 0, '2026-09-20', 195),
+(8, '::1', 'no no username', 0, '2026-09-21', 99),
+(9, '::1', 'no no username', 0, '2026-09-22', 6);
 
 -- --------------------------------------------------------
 
@@ -880,7 +889,6 @@ ALTER TABLE `cafe_categories`
 --
 ALTER TABLE `comments`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uniq_customer_item` (`customer_id`,`menu_item_id`),
   ADD KEY `idx_customer` (`customer_id`),
   ADD KEY `idx_menu_item` (`menu_item_id`);
 
@@ -946,7 +954,7 @@ ALTER TABLE `waiters`
 -- AUTO_INCREMENT for table `act_log`
 --
 ALTER TABLE `act_log`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=426;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=427;
 
 --
 -- AUTO_INCREMENT for table `anbar`
@@ -970,7 +978,7 @@ ALTER TABLE `cafe_categories`
 -- AUTO_INCREMENT for table `comments`
 --
 ALTER TABLE `comments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT for table `customers`
@@ -982,13 +990,13 @@ ALTER TABLE `customers`
 -- AUTO_INCREMENT for table `invoices`
 --
 ALTER TABLE `invoices`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
 
 --
 -- AUTO_INCREMENT for table `invoice_items`
 --
 ALTER TABLE `invoice_items`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=25;
 
 --
 -- AUTO_INCREMENT for table `marketers`
@@ -1018,7 +1026,7 @@ ALTER TABLE `report`
 -- AUTO_INCREMENT for table `users_ip`
 --
 ALTER TABLE `users_ip`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
 
 --
 -- AUTO_INCREMENT for table `waiters`

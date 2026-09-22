@@ -199,6 +199,9 @@ include("calhead.php");
                     $fm->end()
                         ->sndform("customer_id", 2, 1, "مشتری", 1, 1);
 
+                    // ⭐ توضیحات بیشتر (اختیاری — textarea)
+                    $fm->fast_textarea("توضیحات بیشتر", "description", "description");
+
                     // وضعیت فاکتور (اجباری - نمایش در جدول)
                     $fm->label("وضعیت فاکتور", "form-label")
                         ->select()

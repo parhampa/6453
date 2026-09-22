@@ -272,6 +272,34 @@ while ($row = mysqli_fetch_assoc($db->res)) {
         font-size: 12.5px;
     }
 
+    /* ⭐ فیلد توضیحات */
+    .fi-textarea {
+        width: 100%;
+        padding: 12px 14px;
+        border: 1.5px solid var(--border-color);
+        border-radius: 10px;
+        font-size: 13.5px;
+        font-family: Tahoma;
+        background: #fbfcfd;
+        transition: all 0.2s ease;
+        color: var(--panel-text);
+        min-height: 90px;
+        resize: vertical;
+        line-height: 1.9;
+    }
+
+    .fi-textarea:focus {
+        border-color: var(--panel-accent);
+        background: #ffffff;
+        box-shadow: 0 0 0 3px rgba(22, 160, 133, 0.12);
+        outline: none;
+    }
+
+    .fi-textarea::placeholder {
+        color: #b8c3cd;
+        font-size: 12.5px;
+    }
+
     /* نمایش تاریخ شمسی */
     .fi-date-hint {
         font-size: 10.5px;
@@ -1104,6 +1132,20 @@ while ($row = mysqli_fetch_assoc($db->res)) {
                                name="customer_birth"
                                value="">
                     </div>
+
+                    <!-- ⭐ توضیحات بیشتر (اختیاری) -->
+                    <div class="fi-field" style="grid-column: 1 / -1;">
+                        <label>توضیحات بیشتر (اختیاری)</label>
+                        <textarea id="inp-description"
+                                  class="fi-textarea"
+                                  placeholder="مثلاً: بدون شکر، بدون یخ، سفارش فوری، ..."
+                                  maxlength="1000"
+                                  rows="3"></textarea>
+                        <div class="fi-date-hint">
+                            <i class="fa fa-info-circle"></i>
+                            <span>هر توضیح یا یادداشتی که می‌خواهید برای این فاکتور ثبت شود</span>
+                        </div>
+                    </div>
                 </div>
 
                 <button type="button" class="fi-btn fi-btn-primary fi-btn-full"
@@ -1291,6 +1333,7 @@ while ($row = mysqli_fetch_assoc($db->res)) {
 <input type="hidden" class="cf" name="customer_tel" id="cf-tel">
 <input type="hidden" class="cf" name="customer_name" id="cf-name">
 <input type="hidden" class="cf" name="customer_family" id="cf-family">
+<input type="hidden" class="cf" name="description" id="cf-description">
 <!-- customer_birth اینجا نیست چون در بالای فرم تعریف شده -->
 
 <input type="hidden" class="aif" name="action" value="add_item">
@@ -1321,6 +1364,7 @@ while ($row = mysqli_fetch_assoc($db->res)) {
     var currentCustomerFamily = "";
     var currentTableNumber = 0;
     var currentBirthDate = "";
+    var currentDescription = "";
     var cartItems = [];
     var currentCategoryFilter = 0;
     var isBusy = false;
@@ -1485,10 +1529,8 @@ while ($row = mysqli_fetch_assoc($db->res)) {
 
     /* ═══════════════════════════════════════════════════════
        تبدیل تاریخ شمسی به میلادی
-       (تابع shamsibemiladi از calhead.php می‌آید)
     ═══════════════════════════════════════════════════════ */
     function convertBirthDate() {
-        // این تابع را صدا می‌زنیم تا مطمئن شویم مقدار تبدیل شده است
         var jalaliInput = document.getElementById('tacustomer_birth');
         if (jalaliInput && typeof shamsibemiladi === 'function') {
             shamsibemiladi('customer_birth');
@@ -1502,6 +1544,7 @@ while ($row = mysqli_fetch_assoc($db->res)) {
         var tel = document.getElementById('inp-tel').value.trim();
         var name = document.getElementById('inp-name').value.trim();
         var family = document.getElementById('inp-family').value.trim();
+        var description = document.getElementById('inp-description').value.trim();
 
         // تبدیل تاریخ شمسی به میلادی
         convertBirthDate();
@@ -1532,6 +1575,7 @@ while ($row = mysqli_fetch_assoc($db->res)) {
         document.getElementById('cf-tel').value = tel;
         document.getElementById('cf-name').value = name;
         document.getElementById('cf-family').value = family;
+        document.getElementById('cf-description').value = description;
 
         var btn = document.getElementById('btn-step-1');
         btn.classList.add('loading');
@@ -1556,6 +1600,7 @@ while ($row = mysqli_fetch_assoc($db->res)) {
                 currentCustomerFamily = family;
                 currentTableNumber = parseInt(table);
                 currentBirthDate = birthMiladi;
+                currentDescription = description;
 
                 document.getElementById('aif-invoice').value = currentInvoiceId;
                 document.getElementById('dif-invoice').value = currentInvoiceId;
@@ -1574,7 +1619,6 @@ while ($row = mysqli_fetch_assoc($db->res)) {
             isBusy = false;
             customModal.error('خطای ارتباط', 'ارتباط با سرور برقرار نشد.');
         };
-        postobj.res_obj_postdata = postobj.res_obj_postdata; // safe
         res_obj_postdata('cf');
     }
 
@@ -1844,6 +1888,14 @@ while ($row = mysqli_fetch_assoc($db->res)) {
             '<span class="val">' + currentTableNumber + '</span></div>';
         html += '<div class="fi-summary-row"><span class="lbl">تعداد اقلام:</span>' +
             '<span class="val">' + cartItems.length + ' ردیف (' + count + ' عدد)</span></div>';
+
+        // ⭐ نمایش توضیحات در خلاصه نهایی
+        if (currentDescription && currentDescription.trim() !== '') {
+            html += '<div class="fi-summary-row"><span class="lbl">توضیحات:</span>' +
+                '<span class="val" style="max-width: 60%; text-align: left; direction: rtl;">' +
+                escapeHtml(currentDescription) + '</span></div>';
+        }
+
         html += '<div class="fi-summary-row"><span class="lbl">جمع کل:</span>' +
             '<span class="val" style="color: var(--panel-accent); font-size: 15px;">' +
             separate(total) + ' تومان</span></div>';

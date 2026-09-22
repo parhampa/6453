@@ -1,92 +1,140 @@
 <?php
 /**
  * ================================================================
- * گرفتن نظرات خود کاربر برای آیتم‌های منو
+ * گرفتن همه نظرات کاربر برای آیتم‌های منو
  * ----------------------------------------------------------------
- * ورودی JSON:
- *   { "phone": "09123456789", "cafe_id": 1 }
- *
- * خروجی JSON:
- *   {
- *     "status": 1,
- *     "comments": {
- *       "1": { "my_score": 5, "my_comment_id": 12, "my_comment_text": "..." }
- *     }
+ * ساختار خروجی:
+ *   comments: {
+ *       itemId: [
+ *           { id, score, comment_text, comment_date },
+ *           ...
+ *       ]
  *   }
  * ================================================================
  */
 
-error_reporting(0);
+error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
 ob_start();
 
-include_once '../lib/php/lib_include.php';
+$response = ['success' => false, 'message' => 'خطای نامشخص', 'comments' => new stdClass()];
+$json_sent = false;
 
-header('Content-Type: application/json; charset=utf-8');
+register_shutdown_function(function () use (&$response, &$json_sent) {
+    if ($json_sent) return;
+    $buffer = '';
+    while (ob_get_level() > 0) {
+        $buffer = ob_get_clean() . $buffer;
+    }
+    if (!empty($buffer)) {
+        $clean = trim(strip_tags($buffer));
+        if (!empty($clean)) {
+            $response['success'] = false;
+            $response['message'] = $clean;
+            $response['debug_output'] = $buffer;
+        }
+    }
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+    }
+    echo json_encode($response, JSON_UNESCAPED_UNICODE);
+});
 
-function reply($status, $msg, $extra = [])
-{
-    while (ob_get_level() > 0) ob_end_clean();
-    echo json_encode(
-        array_merge(['status' => $status, 'msg' => $msg], $extra),
-        JSON_UNESCAPED_UNICODE
-    );
-    exit;
-}
+try {
 
-/* ---------- خواندن ورودی ---------- */
-$raw = file_get_contents('php://input');
-$input = json_decode($raw, true);
-if (!is_array($input)) $input = $_POST;
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-$phone = preg_replace('/[^0-9]/', '', $input['phone'] ?? '');
-$cafe_id = (int)($input['cafe_id'] ?? 0);
+    include_once '../lib/php/lib_include.php';
 
-if (!preg_match('/^09\d{9}$/', $phone)) {
-    reply(0, 'شماره تلفن نامعتبر است');
-}
+    /* ---------- تبدیل JSON به POST ---------- */
+    $raw = file_get_contents('php://input');
+    if ($raw !== false && $raw !== '') {
+        $json_input = json_decode($raw, true);
+        if (is_array($json_input)) {
+            $_POST = array_merge($_POST, $json_input);
+            $_REQUEST = array_merge($_REQUEST, $json_input);
+        }
+    }
 
-$db = new database();
-$db->connect();
+    $db = new database();
+    $db->connect();
+    $ml = new mobile_input();
 
-$phone_s = mysqli_real_escape_string($db->connection, $phone);
+    $phone_raw = $ml->set_name("phone")->set_title("شماره تلفن")->set_important(false)->post_str();
+    $cafe_id = $ml->set_name("cafe_id")->set_title("شناسه کافه")->set_important(false)->post_int();
 
-/* ---------- پیدا کردن مشتری ---------- */
-$db->query("SELECT `id` FROM `customers` WHERE `tel` = '$phone_s' LIMIT 1");
-if (mysqli_num_rows($db->res) === 0) {
-    reply(0, 'مشتری یافت نشد', ['comments' => new stdClass()]);
-}
+    $phone = preg_replace('/[^0-9]/', '', (string)$phone_raw);
+    if (!preg_match('/^09\d{9}$/', $phone)) {
+        throw new Exception('شماره تلفن نامعتبر است');
+    }
 
-$customer_id = (int)mysqli_fetch_assoc($db->res)['id'];
+    $phone_s = mysqli_real_escape_string($db->connection, $phone);
 
-/* ---------- گرفتن نظرات خود کاربر ---------- */
-if ($cafe_id > 0) {
-    $sql = "SELECT cm.`id`, cm.`menu_item_id`, cm.`score`, cm.`comment_text`
-            FROM `comments` cm
-            JOIN `menu_items` mi ON mi.`id` = cm.`menu_item_id`
-            JOIN `cafe_categories` cc ON cc.`id` = mi.`category_id`
-            WHERE cm.`customer_id` = $customer_id
-              AND cc.`cafe_id` = $cafe_id";
-} else {
-    $sql = "SELECT cm.`id`, cm.`menu_item_id`, cm.`score`, cm.`comment_text`
-            FROM `comments` cm
-            WHERE cm.`customer_id` = $customer_id";
-}
+    /* ---------- پیدا کردن مشتری ---------- */
+    $db->query("SELECT `id` FROM `customers` WHERE `tel` = '$phone_s' LIMIT 1");
+    if (mysqli_num_rows($db->res) == 0) {
+        throw new Exception('مشتری یافت نشد');
+    }
 
-$db->query($sql);
+    $customer_id = (int)mysqli_fetch_assoc($db->res)['id'];
 
-$comments = new stdClass();
-while ($row = mysqli_fetch_assoc($db->res)) {
-    $item_id = (string)(int)$row['menu_item_id'];
-    $comments->$item_id = [
-        'my_score' => (int)$row['score'],
-        'my_comment_id' => (int)$row['id'],
-        'my_comment_text' => (string)$row['comment_text'],
+    /* ---------- گرفتن همه نظرات کاربر ---------- */
+    if ($cafe_id > 0) {
+        $sql = "SELECT cm.`id`, cm.`menu_item_id`, cm.`score`, cm.`comment_text`, cm.`comment_date`
+                FROM `comments` cm
+                JOIN `menu_items` mi ON mi.`id` = cm.`menu_item_id`
+                JOIN `cafe_categories` cc ON cc.`id` = mi.`category_id`
+                WHERE cm.`customer_id` = $customer_id
+                  AND cc.`cafe_id` = $cafe_id
+                ORDER BY cm.`id` DESC";
+    } else {
+        $sql = "SELECT cm.`id`, cm.`menu_item_id`, cm.`score`, cm.`comment_text`, cm.`comment_date`
+                FROM `comments` cm
+                WHERE cm.`customer_id` = $customer_id
+                ORDER BY cm.`id` DESC";
+    }
+
+    $db->query($sql);
+
+    $comments = [];
+    while ($row = mysqli_fetch_assoc($db->res)) {
+        $item_id = (string)(int)$row['menu_item_id'];
+
+        if (!isset($comments[$item_id])) {
+            $comments[$item_id] = [];
+        }
+
+        $comments[$item_id][] = [
+            'id' => (int)$row['id'],
+            'score' => (int)$row['score'],
+            'comment_text' => (string)$row['comment_text'],
+            'comment_date' => (string)$row['comment_date'],
+        ];
+    }
+
+    $response = [
+        'success' => true,
+        'message' => 'ok',
+        'comments' => !empty($comments) ? $comments : new stdClass(),
     ];
+
+} catch (Throwable $e) {
+    $response['success'] = false;
+    $response['message'] = $e->getMessage();
 }
 
-reply(1, 'ok', ['comments' => $comments]);
+$json_sent = true;
+
+while (ob_get_level() > 0) {
+    ob_end_clean();
+}
+
+if (!headers_sent()) {
+    header('Content-Type: application/json; charset=utf-8');
+}
+
+echo json_encode($response, JSON_UNESCAPED_UNICODE);
+exit;

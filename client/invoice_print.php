@@ -10,9 +10,6 @@ include("calhead.php");
 
 $invoice_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
-// ═══════════════════════════════════════════════════
-// کد کافه فعلی از تابع get_cafe_id()
-// ═══════════════════════════════════════════════════
 $current_cafe_id = (int)get_cafe_id();
 
 $db = new database();
@@ -33,18 +30,20 @@ $logo_path = '';
 
 if ($invoice_id > 0) {
 
-    // ═══════════════════════════════════════════════════
-    // کوئری با فیلتر cafe_id
-    // فقط فاکتوری که هم id آن با invoice_id برابر است
-    // و هم cafe_id آن برابر کافه فعلی باشد
-    // ═══════════════════════════════════════════════════
-    $db->query("SELECT id, invoice_date, table_number, discount_percent, status, customer_id, cafe_id, waiter_id 
+    // ⭐ اضافه شدن description به کوئری
+    $db->query("SELECT id, invoice_date, table_number, discount_percent, status, 
+                       customer_id, cafe_id, waiter_id, description 
                 FROM `invoices` 
                 WHERE id = $invoice_id 
                   AND cafe_id = $current_cafe_id");
 
     if (mysqli_num_rows($db->res) > 0) {
         $invoice = mysqli_fetch_assoc($db->res);
+
+        // ⭐ مقدار پیش‌فرض توضیحات
+        if (!isset($invoice['description'])) {
+            $invoice['description'] = '';
+        }
 
         // مشتری
         $invoice['customer_name'] = '';
@@ -124,7 +123,7 @@ if ($invoice_id > 0) {
         $discount_amount = ($grand_total * $discount_percent) / 100;
         $final_total = $grand_total - $discount_amount;
 
-        // لیست آیتم‌های منو (فقط از کافه فعلی)
+        // لیست آیتم‌های منو
         $db->query("SELECT mi.id, mi.title, mi.price 
                     FROM `menu_items` mi 
                     JOIN `cafe_categories` cc ON cc.id = mi.category_id 
@@ -452,41 +451,6 @@ if ($invoice_id > 0) {
         border-color: #c0392b !important;
     }
 
-    .status-notseen {
-        background: #ecf0f1;
-        color: #7f8c8d;
-    }
-
-    .status-seen {
-        background: #e3f2fd;
-        color: #2980b9;
-    }
-
-    .status-inprogress {
-        background: #fef5e7;
-        color: #d68910;
-    }
-
-    .status-failed {
-        background: #fdecea;
-        color: #c0392b;
-    }
-
-    .status-done {
-        background: #e8f5e9;
-        color: #27ae60;
-    }
-
-    .status-waitpay {
-        background: #fef0e6;
-        color: #d35400;
-    }
-
-    .status-paid {
-        background: #d5f4ea;
-        color: #16a085;
-    }
-
     .invoice-meta {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -531,6 +495,90 @@ if ($invoice_id > 0) {
     .meta-inline .item .v {
         color: var(--panel-text);
         font-weight: 600;
+    }
+
+    /* ⭐ بخش توضیحات */
+    .description-section {
+        padding: 12px 20px;
+        background: #fafbfc;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .description-section .block-title {
+        font-size: 10.5px;
+        font-weight: bold;
+        color: var(--panel-accent);
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .description-section .block-title i {
+        font-size: 10px;
+    }
+
+    .description-textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #d6dbe1;
+        border-radius: 8px;
+        font-size: 12.5px;
+        font-family: Tahoma;
+        background: #ffffff;
+        color: var(--panel-text);
+        min-height: 70px;
+        resize: vertical;
+        line-height: 1.8;
+        transition: all 0.3s ease;
+        direction: rtl;
+    }
+
+    .description-textarea:hover {
+        border-color: #b3bcc5;
+        background: #fdfdfe;
+    }
+
+    .description-textarea:focus {
+        border-color: var(--panel-accent);
+        box-shadow: 0 0 0 3px rgba(22, 160, 133, 0.12);
+        outline: none;
+        background: #ffffff;
+    }
+
+    .description-textarea.saving {
+        background: #fef5e7 !important;
+        border-color: #f39c12 !important;
+    }
+
+    .description-textarea.saved {
+        background: #e8f5e9 !important;
+        border-color: #27ae60 !important;
+    }
+
+    .description-textarea.save-error {
+        background: #fdecea !important;
+        border-color: #c0392b !important;
+    }
+
+    .description-textarea::placeholder {
+        color: #b8c3cd;
+        font-style: italic;
+    }
+
+    .description-empty-hint {
+        font-size: 10.5px;
+        color: #95a5a6;
+        margin-top: 5px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-style: italic;
+    }
+
+    .description-empty-hint i {
+        font-size: 10px;
+        color: #b8c3cd;
     }
 
     .items-section {
@@ -1209,7 +1257,8 @@ if ($invoice_id > 0) {
         }
 
         .sidebar, .top-bar, .dashboard-header, .invoice-actions,
-        nav, header, footer, .custom-modal-backdrop {
+        nav, header, footer, .custom-modal-backdrop,
+        .description-empty-hint {
             display: none !important;
         }
 
@@ -1233,6 +1282,15 @@ if ($invoice_id > 0) {
             -moz-appearance: none;
             appearance: none;
             color: inherit !important;
+        }
+
+        .description-textarea {
+            border: none;
+            background: transparent !important;
+            padding: 0;
+            box-shadow: none !important;
+            resize: none;
+            min-height: auto;
         }
 
         .invoice-header, .total-row.final-row, .items-table thead {
@@ -1266,6 +1324,10 @@ if ($invoice_id > 0) {
         .meta-inline {
             flex-direction: column;
             gap: 4px;
+        }
+
+        .description-section {
+            padding: 12px 16px;
         }
 
         .items-section {
@@ -1445,6 +1507,24 @@ if ($invoice_id > 0) {
                             <span class="v"><?php echo htmlspecialchars($invoice['waiter_name'] ?: 'بدون گارسون'); ?></span>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- ⭐ بخش توضیحات -->
+            <div class="description-section">
+                <div class="block-title">
+                    <i class="fa fa-comment-alt"></i>
+                    توضیحات
+                </div>
+                <textarea id="description-input"
+                          class="description-textarea"
+                          placeholder="توضیحی ثبت نشده است..."
+                          onblur="autoSaveDescription()"
+                          onkeydown="if(event.key==='Enter' && event.ctrlKey){event.preventDefault(); this.blur();}"
+                          maxlength="2000"><?php echo htmlspecialchars($invoice['description'] ?? ''); ?></textarea>
+                <div class="description-empty-hint">
+                    <i class="fa fa-info-circle"></i>
+                    <span>برای ذخیره: کلیک بیرون از کادر یا <strong>Ctrl + Enter</strong></span>
                 </div>
             </div>
 
@@ -1700,6 +1780,7 @@ if ($invoice_id > 0) {
         var DISCOUNT_PERCENT = <?php echo (float)$discount_percent; ?>;
         var SAVED_DISCOUNT_PERCENT = <?php echo (float)$discount_percent; ?>;
         var CURRENT_STATUS = <?php echo (int)$invoice['status']; ?>;
+        var SAVED_DESCRIPTION = <?php echo json_encode($invoice['description'] ?? '', JSON_UNESCAPED_UNICODE); ?>;
 
         var customModal = (function () {
             var backdrop = document.getElementById('customModalBackdrop');
@@ -1887,6 +1968,64 @@ if ($invoice_id > 0) {
             var opt = sel.options[sel.selectedIndex];
             document.getElementById('new-price').value = opt.getAttribute('data-price') || 0;
             recalcNewRow();
+        }
+
+        /* ⭐ ذخیره‌ی خودکار توضیحات */
+        function autoSaveDescription() {
+            var input = document.getElementById('description-input');
+            if (!input) return;
+
+            var newValue = (input.value || '').trim();
+            var savedValue = (SAVED_DESCRIPTION || '').trim();
+
+            if (newValue === savedValue) return;
+
+            input.classList.remove('saved', 'save-error');
+            input.classList.add('saving');
+
+            var hidden = document.getElementById('description-hidden');
+            if (hidden) hidden.value = newValue;
+
+            postobj.post_url = AJAX_URL;
+            postobj.send_type = "post";
+            postobj.after_success = function (data) {
+                var res;
+                try {
+                    res = typeof data === 'string' ? JSON.parse(data) : data;
+                } catch (e) {
+                    input.classList.remove('saving');
+                    input.classList.add('save-error');
+                    customModal.error('خطای سرور', 'پاسخ سرور نامعتبر است.');
+                    return;
+                }
+                input.classList.remove('saving');
+
+                if (res.success) {
+                    SAVED_DESCRIPTION = res.description || '';
+                    input.value = SAVED_DESCRIPTION;
+                    input.classList.add('saved');
+                    setTimeout(function () {
+                        input.classList.remove('saved');
+                    }, 1200);
+                } else {
+                    input.classList.add('save-error');
+                    input.value = SAVED_DESCRIPTION;
+                    customModal.error('خطا در ذخیره', res.message || 'خطای نامشخص');
+                    setTimeout(function () {
+                        input.classList.remove('save-error');
+                    }, 1500);
+                }
+            };
+            postobj.after_error = function () {
+                input.classList.remove('saving');
+                input.classList.add('save-error');
+                input.value = SAVED_DESCRIPTION;
+                customModal.error('خطای ارتباط', 'ارتباط با سرور برقرار نشد.');
+                setTimeout(function () {
+                    input.classList.remove('save-error');
+                }, 1500);
+            };
+            res_obj_postdata('description-field');
         }
 
         function autoSaveDiscount() {
@@ -2369,6 +2508,29 @@ if ($invoice_id > 0) {
             statusInvoiceField.value = INVOICE_ID;
             document.body.appendChild(statusInvoiceField);
 
+            /* ⭐ فیلدهای مخفی توضیحات */
+            var descField = document.createElement('input');
+            descField.type = 'hidden';
+            descField.name = 'description';
+            descField.id = 'description-hidden';
+            descField.className = 'description-field';
+            descField.value = SAVED_DESCRIPTION;
+            document.body.appendChild(descField);
+
+            var descActionField = document.createElement('input');
+            descActionField.type = 'hidden';
+            descActionField.name = 'action';
+            descActionField.className = 'description-field';
+            descActionField.value = 'update_description';
+            document.body.appendChild(descActionField);
+
+            var descInvoiceField = document.createElement('input');
+            descInvoiceField.type = 'hidden';
+            descInvoiceField.name = 'invoice_id';
+            descInvoiceField.className = 'description-field';
+            descInvoiceField.value = INVOICE_ID;
+            document.body.appendChild(descInvoiceField);
+
             if (discountInput) {
                 discountInput.addEventListener('input', function () {
                     document.getElementById('discount-percent-hidden').value = this.value;
@@ -2384,6 +2546,14 @@ if ($invoice_id > 0) {
             if (statusSelect) {
                 statusSelect.addEventListener('change', function () {
                     document.getElementById('status-hidden').value = this.value;
+                });
+            }
+
+            var descInput = document.getElementById('description-input');
+            if (descInput) {
+                descInput.addEventListener('input', function () {
+                    var hidden = document.getElementById('description-hidden');
+                    if (hidden) hidden.value = this.value;
                 });
             }
         });

@@ -61,11 +61,15 @@ try {
         $customer_family = $ml->set_name("customer_family")->set_title("نام خانوادگی")->set_important(true)->post_str();
         $customer_birth = $ml->set_name("customer_birth")->set_title("تاریخ تولد")->set_important(false)->post_str();
 
+        // ⭐ توضیحات (اختیاری)
+        $description = $ml->set_name("description")->set_title("توضیحات")->set_important(false)->post_str();
+
         if ($table_number <= 0) throw new Exception('شماره میز را وارد کنید.');
         if (empty($customer_tel)) throw new Exception('شماره تماس را وارد کنید.');
 
         $tel_s = $fm->sqlstr($customer_tel);
 
+        /* ═══ اعتبارسنجی تاریخ تولد (اختیاری) ═══ */
         $birth_sql = "NULL";
         if (!empty($customer_birth)) {
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $customer_birth)) {
@@ -79,11 +83,24 @@ try {
             $birth_sql = "'$birth_s'";
         }
 
+        /* ⭐ اعتبارسنجی توضیحات (اختیاری) ═══ */
+        $description_sql = "NULL";
+        if (!empty($description)) {
+            // محدودیت طول
+            if (mb_strlen($description, 'UTF-8') > 2000) {
+                throw new Exception('توضیحات نمی‌تواند بیشتر از ۲۰۰۰ کاراکتر باشد.');
+            }
+            $description_s = $fm->sqlstr($description);
+            $description_sql = "'$description_s'";
+        }
+
+        /* ═══ مشتری: پیدا کردن یا ایجاد ═══ */
         $db->query("SELECT id FROM `customers` WHERE tel = '$tel_s' LIMIT 1");
         if (mysqli_num_rows($db->res) > 0) {
             $c = mysqli_fetch_assoc($db->res);
             $customer_id = (int)$c['id'];
 
+            // اگه مشتری هست ولی تاریخ تولدش خالی، به‌روزرسانی کن
             if ($birth_sql !== "NULL") {
                 $db->query("UPDATE `customers` 
                             SET birth_date = $birth_sql 
@@ -102,11 +119,18 @@ try {
 
         $today = date('Y-m-d');
 
-        // ⭐ گارسون = همون کاربر جاری، کافه = کافه‌ی گارسون
+        /* ⭐ INSERT با فیلد description */
         $db->query("INSERT INTO `invoices` 
-                    (`invoice_date`, `table_number`, `discount_percent`, `customer_id`, `cafe_id`, `waiter_id`, `status`) 
-                    VALUES ('$today', $table_number, 0, $customer_id, $cfid, $wid, 0)");
+                    (`invoice_date`, `table_number`, `discount_percent`, 
+                     `customer_id`, `cafe_id`, `waiter_id`, `status`, `description`) 
+                    VALUES 
+                    ('$today', $table_number, 0, 
+                     $customer_id, $cfid, $wid, 0, $description_sql)");
         $invoice_id = mysqli_insert_id($db->connection);
+
+        if ($invoice_id <= 0) {
+            throw new Exception('خطا در ایجاد فاکتور.');
+        }
 
         $response = [
             'success' => true,
@@ -117,7 +141,8 @@ try {
             'customer_family' => $customer_family,
             'customer_tel' => $customer_tel,
             'table_number' => $table_number,
-            'birth_date' => $customer_birth
+            'birth_date' => $customer_birth,
+            'description' => $description
         ];
     } /* ═══════════ 2) افزودن آیتم ═══════════ */
     elseif ($action === 'add_item') {
@@ -128,7 +153,7 @@ try {
 
         if ($quantity <= 0) $quantity = 1;
 
-        // ⭐ فقط فاکتور خود گارسون
+        // فقط فاکتور خود گارسون
         $db->query("SELECT id FROM `invoices` WHERE id = $invoice_id AND waiter_id = $wid LIMIT 1");
         if (mysqli_num_rows($db->res) == 0) throw new Exception('فاکتور معتبر نیست.');
 
@@ -181,7 +206,9 @@ try {
 
         $db->query("SELECT ii.id FROM `invoice_items` ii 
                     JOIN `invoices` i ON i.id = ii.invoice_id 
-                    WHERE ii.id = $item_id AND ii.invoice_id = $invoice_id AND i.waiter_id = $wid LIMIT 1");
+                    WHERE ii.id = $item_id 
+                      AND ii.invoice_id = $invoice_id 
+                      AND i.waiter_id = $wid LIMIT 1");
         if (mysqli_num_rows($db->res) == 0) throw new Exception('آیتم یافت نشد.');
 
         $db->query("DELETE FROM `invoice_items` WHERE id = $item_id");
@@ -198,7 +225,9 @@ try {
 
         $db->query("SELECT ii.id, ii.unit_price FROM `invoice_items` ii 
                     JOIN `invoices` i ON i.id = ii.invoice_id 
-                    WHERE ii.id = $item_id AND ii.invoice_id = $invoice_id AND i.waiter_id = $wid LIMIT 1");
+                    WHERE ii.id = $item_id 
+                      AND ii.invoice_id = $invoice_id 
+                      AND i.waiter_id = $wid LIMIT 1");
         if (mysqli_num_rows($db->res) == 0) throw new Exception('آیتم یافت نشد.');
         $row = mysqli_fetch_assoc($db->res);
 

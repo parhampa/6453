@@ -1,10 +1,11 @@
 <?php
 /**
  * ================================================================
- * دریافت سفارشات کاربر + تخفیف فعلی
+ * دریافت سفارشات کاربر + تخفیف فعلی + حذف سفارش
  * ----------------------------------------------------------------
  * action = "list"      →  ۵ سفارش اخیر کاربر از این کافه
  * action = "discount"  →  تخفیف فعلی مشتری (از آخرین فاکتور غیرلغو)
+ * action = "delete"    →  حذف سفارش (فقط اگر وضعیت = مشاهده نشده)
  * ================================================================
  */
 
@@ -34,6 +35,7 @@ if (!is_array($input)) $input = $_POST;
 $action = trim($input['action'] ?? '');
 $phone = preg_replace('/[^0-9]/', '', $input['phone'] ?? '');
 $cafe_id = (int)($input['cafe_id'] ?? 0);
+$invoice_id = (int)($input['invoice_id'] ?? 0);
 
 if (!preg_match('/^09\d{9}$/', $phone)) {
     reply(0, 'شماره تلفن نامعتبر است');
@@ -73,10 +75,7 @@ if ($action === 'list') {
     $where = "i.`customer_id` = $customer_id";
     if ($cafe_id > 0) $where .= " AND i.`cafe_id` = $cafe_id";
 
-    /* ---------- مرحله ۱: گرفتن فاکتورها و ذخیره در آرایه ----------
-       ⚠️ نکته حیاتی: نتیجه رو قبل از کوئری‌های بعدی در آرایه می‌ریزیم
-       تا $db->res بازنویسی نشه.
-    */
+    /* ---------- مرحله ۱: گرفتن فاکتورها و ذخیره در آرایه ---------- */
     $db->query("
         SELECT i.`id`, i.`invoice_date`, i.`table_number`,
                i.`discount_percent`, i.`status`,
@@ -135,6 +134,7 @@ if ($action === 'list') {
             'status_label' => $info['label'],
             'status_color' => $info['color'],
             'status_icon' => $info['icon'],
+            'can_delete' => ($st === 0) ? 1 : 0,
             'items_count' => count($items),
             'subtotal' => $subtotal,
             'discount_percent' => $discount,
@@ -144,6 +144,48 @@ if ($action === 'list') {
     }
 
     reply(1, 'ok', ['orders' => $orders]);
+}
+
+/* ================================================================
+   action = delete  →  حذف سفارش (فقط اگر وضعیت = مشاهده نشده)
+   ================================================================ */
+if ($action === 'delete') {
+
+    if ($invoice_id <= 0) {
+        reply(0, 'شناسه سفارش نامعتبر است');
+    }
+
+    /* ---------- بررسی مالکیت ---------- */
+    $where_cafe = "";
+    if ($cafe_id > 0) $where_cafe = " AND `cafe_id` = $cafe_id";
+
+    $db->query("SELECT `id`, `status` FROM `invoices`
+                WHERE `id` = $invoice_id
+                  AND `customer_id` = $customer_id
+                  $where_cafe
+                LIMIT 1");
+
+    if (mysqli_num_rows($db->res) === 0) {
+        reply(0, 'سفارش یافت نشد یا به شما تعلق ندارد');
+    }
+
+    $invoice = mysqli_fetch_assoc($db->res);
+    $status = (int)$invoice['status'];
+
+    /* ---------- فقط سفارش‌های مشاهده‌نشده قابل حذف هستند ---------- */
+    if ($status !== 0) {
+        reply(0, 'فقط سفارش‌هایی که هنوز توسط کافه مشاهده نشده‌اند قابل حذف هستند');
+    }
+
+    /* ---------- حذف آیتم‌های فاکتور ---------- */
+    $db->query("DELETE FROM `invoice_items` WHERE `invoice_id` = $invoice_id");
+
+    /* ---------- حذف فاکتور ---------- */
+    $db->query("DELETE FROM `invoices` WHERE `id` = $invoice_id LIMIT 1");
+
+    reply(1, 'سفارش با موفقیت حذف شد', [
+        'invoice_id' => $invoice_id,
+    ]);
 }
 
 /* ================================================================

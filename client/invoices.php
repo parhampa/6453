@@ -218,6 +218,8 @@ include("calhead.php");
                     $fm->end()
                         ->sndform("waiter_id", 2, 0, "گارسون", 1, 0);
 
+                    // ⭐ توضیحات بیشتر (اختیاری — textarea)
+                    $fm->fast_textarea("توضیحات بیشتر", "description", "description");
                     // وضعیت فاکتور (اجباری - نمایش در جدول) - سلکت
                     $fm->label("وضعیت فاکتور", "form-label")
                         ->select()

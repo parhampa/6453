@@ -2,8 +2,20 @@
 /**
  * ================================================================
  * ثبت سفارش مشتری — ایجاد فاکتور جدید با آیتم‌ها
- * ----------------------------------------------------------------
- * تخفیف کاربر از آخرین فاکتور غیرلغو (status != 3) به ارث می‌رسد.
+ * ================================================================
+ * ورودی JSON:
+ * {
+ *   "cafe_id": 1,
+ *   "table": 5,
+ *   "first_name": "سارا",
+ *   "last_name": "احمدی",
+ *   "phone": "09123456789",
+ *   "description": "بدون شکر",
+ *   "items": [
+ *     { "id": 1, "qty": 2 },
+ *     { "id": 3, "qty": 1 }
+ *   ]
+ * }
  * ================================================================
  */
 
@@ -12,6 +24,7 @@ ini_set('display_errors', 0);
 session_start();
 ob_start();
 
+/* ✅ اصلاح شد: مسیر include مانند سایر فایل‌های پروژه */
 include_once '../lib/php/lib_include.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -36,6 +49,7 @@ $table = (int)($input['table'] ?? 0);
 $fname = trim($input['first_name'] ?? '');
 $lname = trim($input['last_name'] ?? '');
 $phone = trim($input['phone'] ?? '');
+$description = trim($input['description'] ?? '');
 $items = $input['items'] ?? [];
 
 /* ---------- اعتبارسنجی ---------- */
@@ -56,6 +70,11 @@ if (!is_array($items) || empty($items)) {
     reply(0, 'سبد خرید خالی است');
 }
 
+/* ---------- اعتبارسنجی توضیحات ---------- */
+if (mb_strlen($description, 'UTF-8') > 2000) {
+    reply(0, 'توضیحات نمی‌تواند بیشتر از ۲۰۰۰ کاراکتر باشد');
+}
+
 /* ---------- اتصال ---------- */
 $db = new database();
 $db->connect();
@@ -71,9 +90,10 @@ $fm = new makeform();
 $fname_s = $fm->sqlstr($fname);
 $lname_s = $fm->sqlstr($lname);
 $phone_s = $fm->sqlstr($phone);
+$desc_s = $fm->sqlstr($description);
 
 /* ================================================================
-   ۱) مشتری: پیدا کردن یا ساختن
+   ۱) مشتری: پیدا کردن یا ساخت
    ================================================================ */
 $db->query("SELECT `id` FROM `customers` WHERE `tel` = '$phone_s' LIMIT 1");
 
@@ -92,7 +112,6 @@ if ($customer_id <= 0) {
 
 /* ================================================================
    ۲) تخفیف فعلی مشتری
-      status = 3  →  «غیر قابل انجام»  →  از اون ارث نمی‌بریم
    ================================================================ */
 $db->query("SELECT `discount_percent`
             FROM `invoices`
@@ -110,17 +129,19 @@ if (mysqli_num_rows($db->res) > 0) {
 }
 
 /* ================================================================
-   ۳) ایجاد فاکتور جدید
-      status = 0  →  مشاهده نشده
-      waiter_id = 0  →  ثبت مستقیم توسط مشتری
+   ۳) ایجاد فاکتور جدید — با description
    ================================================================ */
 $today = date('Y-m-d');
 
+/* ⭐ ساخت مقدار SQL برای توضیحات */
+$desc_sql = !empty($description) ? "'$desc_s'" : "NULL";
+
 $db->query("INSERT INTO `invoices`
             (`invoice_date`, `table_number`, `discount_percent`,
-             `customer_id`, `cafe_id`, `waiter_id`, `status`)
+             `customer_id`, `cafe_id`, `waiter_id`, `status`, `description`)
             VALUES
-            ('$today', $table, $user_discount, $customer_id, $cafe_id, 0, 0)");
+            ('$today', $table, $user_discount,
+             $customer_id, $cafe_id, 0, 0, $desc_sql)");
 
 $invoice_id = (int)mysqli_insert_id($db->connection);
 
@@ -163,13 +184,13 @@ foreach ($items as $it) {
     $grand_total += $price * $qty;
 }
 
-/* ---------- اگر آیتم معتبری نبود، فاکتور خالی حذف شود ---------- */
+/* ---------- اگر هیچ آیتم معتبری نبود ---------- */
 if ($added_count === 0) {
     $db->query("DELETE FROM `invoices` WHERE `id` = $invoice_id");
     reply(0, 'هیچ آیتم معتبری یافت نشد');
 }
 
-/* ---------- مبلغ نهایی بعد از تخفیف ---------- */
+/* ---------- مبلغ نهایی ---------- */
 $final_total = $grand_total * (100 - $user_discount) / 100;
 
 reply(1, 'سفارش شما با موفقیت ثبت شد', [
@@ -179,6 +200,7 @@ reply(1, 'سفارش شما با موفقیت ثبت شد', [
     'discount_percent' => $user_discount,
     'total' => $final_total,
     'table' => $table,
+    'description' => $description,
 ]);
 
 exit;

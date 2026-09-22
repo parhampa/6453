@@ -133,6 +133,16 @@ include("calhead.php");
         font-size: 13px;
         pointer-events: none;
     }
+
+    /* ---------- استایل فیلد توضیحات ---------- */
+    .panel-card textarea.form-control {
+        min-height: 110px;
+        resize: vertical;
+        line-height: 1.9;
+        font-family: Tahoma, "Segoe UI", sans-serif;
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
 </style>
 <body style="direction: rtl;">
 
@@ -158,7 +168,7 @@ include("calhead.php");
                     // ---- شماره میز و درصد تخفیف (دو ستونه) ----
                     echo '<div class="form-row-2col">';
 
-                    // شماره میز (اجباری - نمایش در جدول) - نوع: عددی (1)
+                    // شماره میز (اجباری - نمایش در جدول)
                     echo '<div>';
                     $fm->label("شماره میز", "form-label")
                         ->input()
@@ -170,7 +180,7 @@ include("calhead.php");
                         ->sndform("table_number", 1, 1, "شماره میز", 1, 1);
                     echo '</div>';
 
-                    // درصد تخفیف (اختیاری - نمایش در جدول) - نوع: عددی (1) - پیش‌فرض 0
+                    // درصد تخفیف (اختیاری - پیش‌فرض 0)
                     echo '<div>';
                     $fm->label("درصد تخفیف", "form-label")
                         ->input()
@@ -186,7 +196,7 @@ include("calhead.php");
                     echo '</div>';
                     // ---- پایان دو ستونه ----
 
-                    // مشتری مورد نظر (اجباری - نمایش در جدول) - سلکت از جدول customers
+                    // مشتری مورد نظر (اجباری)
                     $fm->label("مشتری مورد نظر", "form-label")
                         ->select()
                         ->selectname("customer_id")
@@ -206,7 +216,7 @@ include("calhead.php");
                     $fm->end()
                         ->sndform("customer_id", 2, 1, "مشتری", 1, 1);
 
-                    // کافه مورد نظر (اجباری - نمایش در جدول) - سلکت از جدول cafes
+                    // کافه مورد نظر (اجباری)
                     $fm->label("کافه مورد نظر", "form-label")
                         ->select()
                         ->selectname("cafe_id")
@@ -221,7 +231,7 @@ include("calhead.php");
                     $fm->end()
                         ->sndform("cafe_id", 2, 1, "کافه", 1, 1);
 
-                    // گارسون ایجاد کننده (اختیاری - نمایش در جدول) - سلکت از جدول waiters
+                    // گارسون ایجاد کننده (اختیاری)
                     $fm->label("گارسون ایجاد کننده", "form-label")
                         ->select()
                         ->selectname("waiter_id")
@@ -236,7 +246,11 @@ include("calhead.php");
                     $fm->end()
                         ->sndform("waiter_id", 2, 0, "گارسون", 1, 0);
 
-                    // وضعیت فاکتور (اجباری - نمایش در جدول) - سلکت
+                    // ⭐ توضیحات بیشتر (اختیاری — textarea با نوع 0)
+                    // ⭐ توضیحات بیشتر (اختیاری — textarea)
+                    $fm->fast_textarea("توضیحات بیشتر", "description", "description");
+
+                    // وضعیت فاکتور (اجباری)
                     $fm->label("وضعیت فاکتور", "form-label")
                         ->select()
                         ->selectname("status")

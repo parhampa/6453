@@ -1,7 +1,7 @@
 <?php
 /**
  * پردازشگر AJAX برای فاکتور
- * شامل: آیتم‌ها، تخفیف، شماره میز، وضعیت
+ * شامل: آیتم‌ها، تخفیف، شماره میز، وضعیت، توضیحات
  */
 
 error_reporting(E_ALL);
@@ -40,11 +40,15 @@ try {
 
     include("../lib/php/lib_include.php");
     include("check_admin_session.php");
+    include("calhead.php");
 
     $fm = new makeform();
     $db = new database();
     $db->connect();
     $ml = new mobile_input();
+
+    // ⭐ گرفتن کافه فعلی برای امنیت
+    $cfid = (int)get_cafe_id();
 
     $action = $ml->set_name("action")->set_title("عملیات")->set_important(false)->post_str();
     $invoice_id = $ml->set_name("invoice_id")->set_title("شناسه فاکتور")->set_important(false)->post_int();
@@ -56,7 +60,12 @@ try {
         throw new Exception('شناسه فاکتور نامعتبر است.');
     }
 
-    $db->query("SELECT id FROM `invoices` WHERE id = $invoice_id LIMIT 1");
+    // ⭐ بررسی وجود فاکتور و تعلق آن به کافه فعلی
+    if ($cfid > 0) {
+        $db->query("SELECT id FROM `invoices` WHERE id = $invoice_id AND cafe_id = $cfid LIMIT 1");
+    } else {
+        $db->query("SELECT id FROM `invoices` WHERE id = $invoice_id LIMIT 1");
+    }
     if (mysqli_num_rows($db->res) == 0) {
         throw new Exception('فاکتور مورد نظر یافت نشد.');
     }
@@ -184,6 +193,28 @@ try {
                 'message' => 'وضعیت فاکتور به «' . $status_texts[$status] . '» تغییر یافت.',
                 'status' => $status,
                 'status_text' => $status_texts[$status]
+            ];
+            break;
+
+        /* ═══════ ویرایش توضیحات ═══════ */
+        case 'update_description':
+            $description = $ml->set_name("description")->set_title("توضیحات")->set_important(false)->post_str();
+
+            // محدودیت طول
+            if (mb_strlen($description, 'UTF-8') > 2000) {
+                throw new Exception('توضیحات نمی‌تواند بیشتر از ۲۰۰۰ کاراکتر باشد.');
+            }
+
+            $description_s = $fm->sqlstr($description);
+
+            $db->query("UPDATE `invoices` 
+                        SET `description` = '$description_s' 
+                        WHERE `id` = $invoice_id");
+
+            $response = [
+                'success' => true,
+                'message' => 'توضیحات ذخیره شد.',
+                'description' => $description
             ];
             break;
 

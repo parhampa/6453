@@ -1,7 +1,7 @@
 <?php
 /**
  * پردازشگر AJAX برای فاکتور
- * شامل: آیتم‌ها، تخفیف، شماره میز، وضعیت
+ * شامل: آیتم‌ها، تخفیف، شماره میز، وضعیت، توضیحات
  */
 
 error_reporting(E_ALL);
@@ -40,6 +40,7 @@ try {
 
     include("../lib/php/lib_include.php");
     include("check_admin_session.php");
+    include("calhead.php");
 
     $fm = new makeform();
     $db = new database();
@@ -199,6 +200,28 @@ try {
                 'message' => 'وضعیت فاکتور به «' . $status_texts[$status] . '» تغییر یافت.',
                 'status' => $status,
                 'status_text' => $status_texts[$status]
+            ];
+            break;
+
+        /* ═══════ ویرایش توضیحات ═══════ */
+        case 'update_description':
+            $description = $ml->set_name("description")->set_title("توضیحات")->set_important(false)->post_str();
+
+            /* محدودیت طول */
+            if (mb_strlen($description, 'UTF-8') > 2000) {
+                throw new Exception('توضیحات نمی‌تواند بیشتر از ۲۰۰۰ کاراکتر باشد.');
+            }
+
+            $description_s = $fm->sqlstr($description);
+
+            $db->query("UPDATE `invoices` 
+                        SET `description` = '$description_s' 
+                        WHERE `id` = $invoice_id");
+
+            $response = [
+                'success' => true,
+                'message' => 'توضیحات ذخیره شد.',
+                'description' => $description
             ];
             break;
 

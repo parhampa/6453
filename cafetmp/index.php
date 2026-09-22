@@ -1,6 +1,6 @@
 <?php
 /* ================================================================
-   ⚙️  تنظیمات
+   ⚙️ تنظیمات
    ================================================================ */
 $CAFE_ID = 1;
 
@@ -106,10 +106,8 @@ function item_rating($comments)
 
 function fix_img($path)
 {
-    /*if (empty($path)) return '';
+    if (empty($path)) return '';
     $path = str_replace('\\', '/', trim($path));
-    while (strpos($path, '../') === 0) $path = substr($path, 3);
-    return ltrim($path, '/');*/
     return $path;
 }
 
@@ -300,6 +298,19 @@ function category_icon($title)
                     </div>
                 </div>
 
+                <!-- ⭐ فیلد توضیحات بیشتر (اختیاری) -->
+                <div class="order-description-row" id="orderDescriptionRow">
+                    <label for="orderDescription">
+                        <i class="fa-solid fa-comment-dots"></i>
+                        توضیحات بیشتر (اختیاری)
+                    </label>
+                    <textarea id="orderDescription"
+                              class="order-description-input"
+                              placeholder="مثلاً: بدون شکر، بدون یخ، سفارش فوری، ..."
+                              maxlength="1000"
+                              rows="2"></textarea>
+                </div>
+
                 <div class="order-total-row">
                     <span>جمع کل</span>
                     <strong id="orderTotal">۰ تومان</strong>
@@ -436,9 +447,6 @@ function category_icon($title)
         </div>
     </header>
 
-    <!-- ═══════════════════════════════════════════════════════════
-         صفحه‌ی اصلی (دسته‌بندی‌ها + جستجو + نتایج)
-         ═══════════════════════════════════════════════════════════ -->
     <main class="page" id="categoriesPage">
         <section class="brand-hero">
             <div class="brand-logo">
@@ -453,9 +461,6 @@ function category_icon($title)
             <p class="brand-hero-slogan"><?= htmlspecialchars($cafe['slogan'] ?? '') ?></p>
         </section>
 
-        <!-- ================================================================
-             بخش جستجو (sticky — موقع جستجو سر جاش می‌مونه)
-             ================================================================ -->
         <section class="search-section" id="searchSection">
             <div class="search-inner">
                 <div class="search-label">
@@ -529,9 +534,6 @@ function category_icon($title)
             </div>
         </section>
 
-        <!-- ============================================================
-             بخش نتایج جستجو
-             ============================================================ -->
         <section class="search-results-section" id="searchResultsSection">
             <div class="search-results-header">
                 <div class="search-results-title">
@@ -556,9 +558,6 @@ function category_icon($title)
             </div>
         </section>
 
-        <!-- ============================================================
-             بخش عادی (دسته‌بندی‌ها)
-             ============================================================ -->
         <div id="categoriesNormalView">
             <div class="page-hero">
                 <div class="eyebrow-name" id="greetingText">سلام 👋</div>
@@ -645,9 +644,6 @@ function category_icon($title)
         </div>
     </main>
 
-    <!-- ═══════════════════════════════════════════════════════════
-         صفحه‌ی آیتم‌های یک دسته‌ی خاص
-         ═══════════════════════════════════════════════════════════ -->
     <main class="page" id="itemsPage" style="display: none">
         <div class="items-header">
             <h2 id="itemsPageTitle">دسته‌بندی</h2>
